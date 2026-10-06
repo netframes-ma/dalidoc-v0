@@ -10,6 +10,7 @@
 - `CONTRIBUTING.md`
 - `LICENSE.md`
 - `README.md`
+- `apps/web/README.md`
 - `SECURITY.md`
 - `SUPPORT.md`
 - `docs/API_SPECIFICATION.md`
@@ -38,6 +39,7 @@
 - `docs/adr/0002-use-nextjs-tailwind-shadcn.md`
 - `docs/adr/0003-use-prisma-postgresql.md`
 - `docs/adr/0004-odontogram-as-flagship-feature.md`
+- `docs/adr/0005-use-react-advanced-odontogram.md`
 - `docs/adr/README.md`
 - `docs/features/agenda-and-calendar.md`
 - `docs/features/billing-and-payments.md`

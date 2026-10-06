@@ -4,7 +4,7 @@ DaliDoc is a Moroccan dental clinic SaaS MVP focused on patients, agenda, odonto
 
 ## Flagship Feature
 
-The strongest MVP screen is the **Schéma dentaire / Odontogram Workspace**: an oval FDI dental chart where dentists and assistants document tooth-level diagnosis, planned treatment, completed treatment, assistant drafts, dentist validation, notes, timeline, linked appointment, and linked invoice.
+The strongest MVP screen is the **Schéma dentaire / Odontogram Workspace**: an FDI dental chart (React Advanced Odontogram, with an oval arch navigator) where dentists and assistants document tooth-level diagnosis, planned treatment, completed treatment, assistant drafts, dentist validation, notes, timeline, linked appointment, and linked invoice.
 
 ## Recommended Stack
 
@@ -18,6 +18,16 @@ The strongest MVP screen is the **Schéma dentaire / Odontogram Workspace**: an 
 | Auth-ready | OAuth2/OIDC, Ory Hydra-ready architecture |
 | Integrations | WhatsApp provider, Google Calendar, Outlook, ICS fallback |
 | Deploy | Docker Compose, Coolify-ready |
+
+## Web App
+
+The front end lives in `apps/web` — start with the odontogram workspace:
+
+```bash
+cd apps/web && npm install && npm run dev
+```
+
+See `apps/web/README.md`.
 
 ## Start Here
 
