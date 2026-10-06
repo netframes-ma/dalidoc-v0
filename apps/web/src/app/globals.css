@@ -1,0 +1,281 @@
+/*
+ * DaliDoc design tokens (MIRQAB system) for the web app.
+ *
+ * Token names and values are the ones used across the DaliDoc template:
+ * a dark grained bezel (--frame) holds one rounded panel; ink cards carry the
+ * figures that matter; six user-selectable brands through data-brand on <html>.
+ * Theme: data-theme="light" | "dark" on <html> (set before paint by the inline
+ * script in layout.tsx); without it the OS preference applies.
+ */
+@layer theme, base, odontogram, components, utilities;
+
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "../styles/vendor/odontogram.css";
+@import "../styles/odontogram-theme.css";
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+:root {
+  color-scheme: light;
+  /* Brand — teal is the default */
+  --brand: #087482;
+  --brand-dark: #06606c;
+  --brand-tint: #dff8fb;
+  --brand-on-dark: #22b8c9;
+  --brand-on-dark-fg: #042f2e;
+  --brand-rgb: 8, 116, 130;
+  --brand-on-dark-rgb: 34, 184, 201;
+
+  --primary: var(--brand);
+  --primary-fg: #ffffff;
+  --primary-dark: var(--brand-dark);
+  --primary-tint: var(--brand-tint);
+  --primary-rgb: var(--brand-rgb);
+  --ring: var(--brand);
+
+  --bg: #f8fafc;
+  --fg: #111827;
+  --card: #ffffff;
+  --popover: #ffffff;
+  --muted: #f1f5f9;
+  --muted-fg: #475569;
+  --accent: #f1f5f9;
+  --border: #e2e8f0;
+  --input: #cbd5e1;
+  --secondary: #1f2937;
+  --secondary-fg: #f9fafb;
+
+  --success: #15803d;
+  --success-fg: #ffffff;
+  --warning: #b45309;
+  --warning-fg: #ffffff;
+  --danger: #dc2626;
+  --danger-fg: #ffffff;
+  --info: #1d4ed8;
+  --info-fg: #ffffff;
+  --patch: #854d0e;
+  --patch-fg: #ffffff;
+
+  --s1: #2a78d6;
+  --s2: #eb6834;
+  --s3: #1baf7a;
+
+  --frame: #111720;
+  --frame-fg: #e6ebf2;
+  --frame-muted: #8a97a8;
+  --ink: #1f2937;
+  --ink-fg: #f9fafb;
+  --grid-dot: #c4ceda;
+  --nav-active: var(--brand-tint);
+  --soft: color-mix(in srgb, var(--fg) 6%, var(--bg));
+  --glass: color-mix(in srgb, var(--card) 86%, transparent);
+
+  /* Values the always-dark ink surfaces use, whatever the theme */
+  --od-accent: var(--brand-on-dark);
+  --od-accent-fg: var(--brand-on-dark-fg);
+  --od-success: #4ade80;
+  --od-warning: #fbbf24;
+  --od-danger: #f87171;
+  --od-info: #93c5fd;
+
+  --tooth: #ffffff;
+  --tooth-edge: #b8c3d1;
+  --tooth-missing: #e2e8f0;
+
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+[data-brand="blue"] {
+  --brand: #1d4ed8; --brand-dark: #1e40af; --brand-tint: #dbeafe; --brand-on-dark: #60a5fa; --brand-on-dark-fg: #172554;
+  --brand-rgb: 29, 78, 216; --brand-on-dark-rgb: 96, 165, 250;
+}
+[data-brand="indigo"] {
+  --brand: #4338ca; --brand-dark: #3730a3; --brand-tint: #e0e7ff; --brand-on-dark: #818cf8; --brand-on-dark-fg: #1e1b4b;
+  --brand-rgb: 67, 56, 202; --brand-on-dark-rgb: 129, 140, 248;
+}
+[data-brand="violet"] {
+  --brand: #6d28d9; --brand-dark: #5b21b6; --brand-tint: #ede9fe; --brand-on-dark: #a78bfa; --brand-on-dark-fg: #2e1065;
+  --brand-rgb: 109, 40, 217; --brand-on-dark-rgb: 167, 139, 250;
+}
+[data-brand="fuchsia"] {
+  --brand: #a21caf; --brand-dark: #86198f; --brand-tint: #fae8ff; --brand-on-dark: #e879f9; --brand-on-dark-fg: #4a044e;
+  --brand-rgb: 162, 28, 175; --brand-on-dark-rgb: 232, 121, 249;
+}
+[data-brand="slate"] {
+  --brand: #334155; --brand-dark: #1e293b; --brand-tint: #e2e8f0; --brand-on-dark: #cbd5e1; --brand-on-dark-fg: #0f172a;
+  --brand-rgb: 51, 65, 85; --brand-on-dark-rgb: 203, 213, 225;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --primary: var(--brand-on-dark); --primary-fg: var(--brand-on-dark-fg); --primary-rgb: var(--brand-on-dark-rgb); --ring: var(--brand-on-dark);
+    --primary-tint: color-mix(in srgb, var(--brand-on-dark) 16%, transparent);
+    --bg: #0f172a; --fg: #f1f5f9; --card: #1e293b; --popover: #1e293b; --muted: #2a3a50; --muted-fg: #a3b1c6;
+    --accent: #334155; --border: #334155; --input: #64748b; --secondary: #334155; --secondary-fg: #f1f5f9;
+    --success: #4ade80; --success-fg: #052e16; --warning: #fbbf24; --warning-fg: #422006; --danger: #f87171; --danger-fg: #450a0a;
+    --info: #93c5fd; --info-fg: #172554; --patch: #fde047; --patch-fg: #422006;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70;
+    --frame: #05080f; --ink: #334155; --grid-dot: #26344a; --nav-active: color-mix(in srgb, var(--brand-on-dark) 16%, transparent);
+    --tooth: #e9eef5; --tooth-edge: #64748b; --tooth-missing: #2a3a50;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --primary: var(--brand-on-dark); --primary-fg: var(--brand-on-dark-fg); --primary-rgb: var(--brand-on-dark-rgb); --ring: var(--brand-on-dark);
+  --primary-tint: color-mix(in srgb, var(--brand-on-dark) 16%, transparent);
+  --bg: #0f172a; --fg: #f1f5f9; --card: #1e293b; --popover: #1e293b; --muted: #2a3a50; --muted-fg: #a3b1c6;
+  --accent: #334155; --border: #334155; --input: #64748b; --secondary: #334155; --secondary-fg: #f1f5f9;
+  --success: #4ade80; --success-fg: #052e16; --warning: #fbbf24; --warning-fg: #422006; --danger: #f87171; --danger-fg: #450a0a;
+  --info: #93c5fd; --info-fg: #172554; --patch: #fde047; --patch-fg: #422006;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70;
+  --frame: #05080f; --ink: #334155; --grid-dot: #26344a; --nav-active: color-mix(in srgb, var(--brand-on-dark) 16%, transparent);
+  --tooth: #e9eef5; --tooth-edge: #64748b; --tooth-missing: #2a3a50;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-fg: var(--fg);
+  --color-card: var(--card);
+  --color-popover: var(--popover);
+  --color-muted: var(--muted);
+  --color-muted-fg: var(--muted-fg);
+  --color-accent: var(--accent);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-soft: var(--soft);
+  --color-glass: var(--glass);
+
+  --color-brand: var(--brand);
+  --color-primary: var(--primary);
+  --color-primary-fg: var(--primary-fg);
+  --color-primary-dark: var(--primary-dark);
+  --color-primary-tint: var(--primary-tint);
+  --color-secondary: var(--secondary);
+  --color-secondary-fg: var(--secondary-fg);
+
+  --color-success: var(--success);
+  --color-success-fg: var(--success-fg);
+  --color-warning: var(--warning);
+  --color-warning-fg: var(--warning-fg);
+  --color-danger: var(--danger);
+  --color-danger-fg: var(--danger-fg);
+  --color-info: var(--info);
+  --color-info-fg: var(--info-fg);
+  --color-patch: var(--patch);
+  --color-patch-fg: var(--patch-fg);
+
+  --color-s1: var(--s1);
+  --color-s2: var(--s2);
+  --color-s3: var(--s3);
+
+  --color-frame: var(--frame);
+  --color-frame-fg: var(--frame-fg);
+  --color-frame-muted: var(--frame-muted);
+  --color-ink: var(--ink);
+  --color-ink-fg: var(--ink-fg);
+  --color-grid-dot: var(--grid-dot);
+  --color-nav-active: var(--nav-active);
+  --color-od-accent: var(--od-accent);
+  --color-od-accent-fg: var(--od-accent-fg);
+  --color-od-success: var(--od-success);
+  --color-od-warning: var(--od-warning);
+  --color-od-danger: var(--od-danger);
+  --color-od-info: var(--od-info);
+
+  --color-tooth: var(--tooth);
+  --color-tooth-edge: var(--tooth-edge);
+  --color-tooth-missing: var(--tooth-missing);
+}
+
+@theme {
+  --font-sans: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-arabic: "IBM Plex Sans Arabic", "Inter Variable", "Segoe UI", Tahoma, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-card: 1.25rem;
+  --radius-shell: 26px;
+
+  --shadow-soft: 0 1px 3px 0 rgb(0 0 0 / 0.05), 0 1px 2px -1px rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.07), 0 2px 4px -2px rgb(0 0 0 / 0.05);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.08), 0 4px 6px -4px rgb(0 0 0 / 0.05);
+
+  --ease-dd: cubic-bezier(0.2, 0.7, 0.2, 1);
+
+  --animate-rise: dd-rise 0.5s var(--ease-dd) both;
+  @keyframes dd-rise {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: none; }
+  }
+}
+
+@layer base {
+  *,
+  ::before,
+  ::after {
+    border-color: var(--border);
+  }
+  html,
+  body {
+    height: 100%;
+  }
+  body {
+    background: var(--grain), var(--frame);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: "cv11", "ss01";
+  }
+  :root[lang="ar"] body {
+    font-family: var(--font-arabic);
+    font-feature-settings: normal;
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--primary) 26%, transparent);
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
+  [dir="rtl"] :is(code, kbd, samp, pre, .font-mono) {
+    direction: ltr;
+    unicode-bidi: isolate;
+  }
+}
+
+@utility eyebrow {
+  font-family: var(--font-mono);
+  font-feature-settings: normal;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted-fg);
+  &:where(:root[lang="ar"] *) {
+    letter-spacing: 0;
+    text-transform: none;
+    font-family: var(--font-arabic);
+    font-size: 11.5px;
+  }
+}
+
+@utility grid-dots {
+  background-image: radial-gradient(var(--grid-dot) 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+
+@utility tnum {
+  font-variant-numeric: tabular-nums;
+}

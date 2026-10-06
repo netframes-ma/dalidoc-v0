@@ -1,0 +1,9 @@
+node_modules/
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+coverage/
+.env*.local
+# Generated from react-advanced-odontogram/dist/style.css by scripts/scope-odontogram-css.mjs
+src/styles/vendor/

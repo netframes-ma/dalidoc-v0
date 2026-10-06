@@ -1,0 +1,330 @@
+/*
+ * React Advanced Odontogram × DaliDoc tokens.
+ *
+ * 1. Public theme variables (--odon-*) mapped to DaliDoc tokens, on :root
+ *    because the engine appends some popups (zoom, context menu, caries depth)
+ *    straight to <body>.
+ * 2. The lightbox: the chart surface on an ink panel in every theme.
+ * 3. DaliDoc's workflow markers on the engine's tiles (data-dd-flow).
+ * 4. The engine's controls and summary inside DaliDoc cards.
+ *
+ * Note: inside the engine root, write `max-sm:hidden` rather than
+ * `hidden sm:block` — the engine owns an `!important` `.hidden` class there.
+ */
+
+/* 1 ── Theme bridge ─────────────────────────────────────────────────────── */
+:root {
+  --odon-bg: var(--bg);
+  --odon-panel: var(--card);
+  --odon-card: var(--card);
+  --odon-text: var(--fg);
+  --odon-muted: var(--muted-fg);
+  --odon-line: var(--border);
+  --odon-accent: var(--primary);
+  --odon-accent2: var(--success);
+  --odon-select-rgb: var(--primary-rgb);
+
+  /* Restoration materials: the engine's palette, with metal-ceramic moved
+     from a yellow→blue ramp to porcelain→steel so it reads as a material, not
+     an alert. Still nine distinct steps for the gradient. */
+  --odon-rest-metal-ceramic-0: #f6f1e7;
+  --odon-rest-metal-ceramic-1: #efe9dd;
+  --odon-rest-metal-ceramic-2: #e4dfd5;
+  --odon-rest-metal-ceramic-3: #d6d3cd;
+  --odon-rest-metal-ceramic-4: #c4c5c5;
+  --odon-rest-metal-ceramic-5: #b0b5bc;
+  --odon-rest-metal-ceramic-6: #9ca4b0;
+  --odon-rest-metal-ceramic-7: #8a94a3;
+  --odon-rest-metal-ceramic-8: #7d8a9c;
+}
+
+/* The classic artwork hard-codes its gradient stops (only the "measured"
+   anatomy reads --odon-rest-*), so the metal-ceramic ramp is re-pointed at the
+   variables here; CSS outranks SVG presentation attributes. */
+stop[stop-color="#feff5f" i] { stop-color: var(--odon-rest-metal-ceramic-0); }
+stop[stop-color="#f9fc60" i] { stop-color: var(--odon-rest-metal-ceramic-1); }
+stop[stop-color="#edf564" i] { stop-color: var(--odon-rest-metal-ceramic-2); }
+stop[stop-color="#d8ea6b" i] { stop-color: var(--odon-rest-metal-ceramic-3); }
+stop[stop-color="#bbd975" i] { stop-color: var(--odon-rest-metal-ceramic-4); }
+stop[stop-color="#95c482" i] { stop-color: var(--odon-rest-metal-ceramic-5); }
+stop[stop-color="#68ab91" i] { stop-color: var(--odon-rest-metal-ceramic-6); }
+stop[stop-color="#328da3" i] { stop-color: var(--odon-rest-metal-ceramic-7); }
+stop[stop-color="#0071b5" i] { stop-color: var(--odon-rest-metal-ceramic-8); }
+
+@layer components {
+  /* 2 ── Lightbox ────────────────────────────────────────────────────────── */
+  .dd-lightbox {
+    --lb-surface: #141b26;
+    --lb-tile: rgb(255 255 255 / 0.03);
+    --lb-line: rgb(255 255 255 / 0.08);
+    --rao-bg: transparent;
+    --rao-panel: #1b2431;
+    --rao-card: #1b2431;
+    --rao-text: var(--frame-fg);
+    --rao-muted: var(--frame-muted);
+    --rao-line: var(--lb-line);
+    --rao-accent: var(--od-accent);
+    --rao-accent2: var(--od-success);
+    color: var(--frame-fg);
+    background:
+      radial-gradient(110% 60% at 50% -12%, color-mix(in srgb, var(--od-accent) 13%, transparent), transparent 62%),
+      radial-gradient(rgb(255 255 255 / 0.055) 1px, transparent 1px) 0 0 / 18px 18px,
+      var(--grain),
+      var(--lb-surface);
+    box-shadow:
+      0 0 0 1px rgb(255 255 255 / 0.04) inset,
+      0 24px 48px -28px rgb(2 6 23 / 0.6);
+  }
+
+  /* The engine writes its default selection colour inline on the grid
+     (2.5.0 has no setter); only !important outranks an inline declaration. */
+  .dd-lightbox .tooth-grid {
+    --odon-select-rgb: var(--brand-on-dark-rgb) !important;
+    --odon-select-border-style: solid !important;
+  }
+
+  /* Narrow screens: the 16-tooth rows scroll inside the lightbox. */
+  .dd-lightbox .tooth-grid {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-color: rgb(255 255 255 / 0.2) transparent;
+    padding-bottom: 4px;
+  }
+
+  .dd-lightbox .chart {
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .dd-lightbox .chart-header {
+    border: 0;
+    padding: 10px 6px 14px;
+    gap: 10px;
+    flex-wrap: wrap;
+    background: transparent;
+  }
+  .dd-lightbox .chart-title,
+  .dd-lightbox .chart-hint {
+    display: none;
+  }
+  .dd-lightbox .chart-header > div:first-child:not([id]) {
+    display: none;
+  }
+
+  .dd-lightbox .chart-mode-toggle {
+    background: rgb(255 255 255 / 0.05);
+    border: 1px solid var(--lb-line);
+    border-radius: 999px;
+    padding: 3px;
+  }
+  .dd-lightbox .chart-mode-btn {
+    border-radius: 999px;
+    color: var(--frame-muted);
+    font-weight: 600;
+    font-size: 12.5px;
+    padding: 6px 16px;
+    background: transparent;
+    border: 0;
+  }
+  .dd-lightbox .chart-mode-btn:hover {
+    color: var(--frame-fg);
+    background: rgb(255 255 255 / 0.05);
+  }
+  .dd-lightbox .chart-mode-btn.is-active {
+    background: var(--od-accent);
+    color: var(--od-accent-fg);
+  }
+  .dd-lightbox .chart.plan-mode .chart-mode-btn.is-active {
+    background: var(--od-warning);
+    color: #422006;
+  }
+
+  .dd-lightbox .chart-actions {
+    gap: 6px;
+    margin-inline-start: auto;
+  }
+  .dd-lightbox .chart-actions .btn {
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    display: grid;
+    place-items: center;
+    border-radius: 12px;
+    border: 1px solid var(--lb-line);
+    background: rgb(255 255 255 / 0.04);
+    color: var(--frame-fg);
+  }
+  .dd-lightbox .chart-actions .btn:hover {
+    background: rgb(255 255 255 / 0.09);
+  }
+  .dd-lightbox .chart-actions .btn[aria-pressed="true"] {
+    border-color: color-mix(in srgb, var(--od-accent) 60%, transparent);
+    background: color-mix(in srgb, var(--od-accent) 16%, transparent);
+  }
+  .dd-lightbox .chart-actions .btn svg,
+  .dd-lightbox .chart-actions .btn img {
+    width: 22px;
+    height: 22px;
+  }
+
+  .dd-lightbox .tooth-label-cell {
+    font-family: var(--font-mono);
+    font-feature-settings: normal;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--frame-muted);
+  }
+
+  .dd-lightbox .tooth-tile {
+    background: var(--lb-tile);
+    border-color: var(--lb-line);
+    border-radius: 14px;
+    transition:
+      background-color 0.18s var(--ease),
+      border-color 0.18s var(--ease),
+      transform 0.18s var(--ease);
+  }
+  .dd-lightbox .tooth-tile:hover {
+    background: rgb(255 255 255 / 0.07);
+    border-color: rgb(255 255 255 / 0.16);
+  }
+  .dd-lightbox .tooth-tile.active,
+  .dd-lightbox .tooth-tile[data-dd-selected] {
+    background: color-mix(in srgb, var(--od-accent) 12%, transparent);
+  }
+  .dd-lightbox .tooth-tile[data-dd-selected]::after {
+    border-color: rgba(var(--odon-select-rgb), 1);
+    border-style: solid;
+  }
+  /* Read-only roles still open a tooth's record by clicking it: DaliDoc
+     handles the click (the engine ignores clicks in read-only mode). */
+  .dd-lightbox .tooth-grid.read-only .tooth-tile:not(.placeholder) {
+    pointer-events: auto;
+    cursor: pointer;
+  }
+  .dd-lightbox .tooth-grid.read-only .tooth-tile:not(.placeholder):hover {
+    background: rgb(255 255 255 / 0.07);
+  }
+  .dd-lightbox .tooth-tile.placeholder {
+    background: transparent;
+    border-style: dashed;
+    border-color: rgb(255 255 255 / 0.05);
+  }
+  .dd-lightbox .chart.plan-mode .tooth-tile {
+    border-color: color-mix(in srgb, var(--od-warning) 22%, transparent);
+  }
+
+  /* 3 ── Workflow markers ───────────────────────────────────────────────── */
+  [data-dd-flow="pending"],
+  [data-dd-marker="pending"] {
+    --marker: var(--od-warning);
+  }
+  [data-dd-flow="unsaved"],
+  [data-dd-marker="unsaved"] {
+    --marker: var(--od-warning);
+  }
+  [data-dd-flow="planned"],
+  [data-dd-marker="planned"] {
+    --marker: var(--od-accent);
+  }
+  [data-dd-flow="done"],
+  [data-dd-marker="done"] {
+    --marker: var(--od-success);
+  }
+
+  .dd-lightbox .tooth-tile[data-dd-flow]::before {
+    content: "";
+    position: absolute;
+    top: 6px;
+    inset-inline-end: 6px;
+    z-index: 3;
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: var(--marker);
+    box-shadow:
+      0 0 0 3px color-mix(in srgb, var(--marker) 22%, transparent),
+      0 0 10px color-mix(in srgb, var(--marker) 70%, transparent);
+    pointer-events: none;
+  }
+  .dd-lightbox .tooth-tile[data-dd-flow="pending"]::before {
+    animation: dd-marker-pulse 2.4s var(--ease) infinite;
+  }
+  .dd-lightbox .tooth-tile[data-dd-flow="unsaved"] {
+    outline: 1.5px dashed var(--od-warning);
+    outline-offset: -5px;
+  }
+  .dd-lightbox .tooth-tile[data-dd-flow="unsaved"]::before {
+    background: transparent;
+    border: 1.5px solid var(--marker);
+  }
+
+  .dd-marker-dot {
+    display: inline-block;
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--marker, currentColor);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--marker, currentColor) 20%, transparent);
+  }
+  .dd-marker-dot[data-dd-marker="unsaved"] {
+    background: transparent;
+    border: 1.5px dashed var(--marker);
+    box-shadow: none;
+  }
+
+  @keyframes dd-marker-pulse {
+    0%,
+    100% {
+      box-shadow:
+        0 0 0 3px color-mix(in srgb, var(--marker) 22%, transparent),
+        0 0 10px color-mix(in srgb, var(--marker) 70%, transparent);
+    }
+    50% {
+      box-shadow:
+        0 0 0 6px color-mix(in srgb, var(--marker) 6%, transparent),
+        0 0 16px color-mix(in srgb, var(--marker) 90%, transparent);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .dd-lightbox .tooth-tile[data-dd-flow="pending"]::before {
+      animation: none;
+    }
+  }
+
+  /* 4 ── Engine controls and summary in DaliDoc cards ───────────────────── */
+  .dd-controls .panel,
+  .dd-controls .panel-body {
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+    padding: 0;
+  }
+  .dd-controls .card {
+    border-radius: 16px;
+    border-color: var(--border);
+    box-shadow: none;
+  }
+  .dd-controls .btn {
+    border-radius: 999px;
+    font-weight: 500;
+  }
+  .dd-controls select,
+  .dd-controls .btn,
+  .dd-info .tooth-info-table-wrap {
+    overflow-x: auto;
+  }
+  .dd-info .tooth-info {
+    font-size: 12.5px;
+  }
+  .dd-info .tooth-info {
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+    padding: 0;
+  }
+}
