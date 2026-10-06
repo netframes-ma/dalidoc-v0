@@ -1,0 +1,306 @@
+From 422af04a4eeb3c2adedba8b721519a21a4658654 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 6 Oct 2026 10:02:34 +0000
+Subject: [PATCH 2/5] feat(selection): selectTeeth, getActiveTooth and
+ onSelectionChange
+
+A host could read the selection but not set it, and could only follow it
+through onStateChange, which also fires on every chart edit.
+
+- selectTeeth(teeth, { activeTooth }) selects from the host; unknown and
+  duplicate numbers are ignored, [] clears; works in read-only mode
+- getActiveTooth() returns the tooth the controls show
+- onSelectionChange((teeth, activeTooth) => ...) fires only when either
+  changes; a failing listener cannot break the others
+- onStateChange keeps firing on selection changes
+
+Tests: selection-api.test.ts; API surface golden re-captured.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01LCyGZy1hJThR67oFx5pzCS
+---
+ CHANGELOG.md                                 |  9 ++
+ lang/README-en.md                            |  3 +
+ src/App.tsx                                  |  6 +-
+ src/__tests__/parity/api-surface-golden.json |  6 ++
+ src/__tests__/selection-api.test.ts          | 90 ++++++++++++++++++++
+ src/odontogram.ts                            | 53 ++++++++++++
+ 6 files changed, 164 insertions(+), 3 deletions(-)
+ create mode 100644 src/__tests__/selection-api.test.ts
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 4f90cf0..5ef3560 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -85,6 +85,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
+ 
+ ### Added
+ 
++- **Host-driven selection: `selectTeeth()`, `getActiveTooth()`,
++  `onSelectionChange()`.** A host could read the selection but not set it, and
++  could only follow it through `onStateChange`, which also fires on every chart
++  edit. `selectTeeth(teeth, { activeTooth })` selects from outside the chart (a
++  patient list, a treatment-plan row) and works in read-only mode, since it is
++  not an edit; `getActiveTooth()` returns the tooth the controls show;
++  `onSelectionChange((teeth, activeTooth) => …)` fires only when the selection or
++  the active tooth changes. `onStateChange` still fires on selection changes as
++  before.
+ - **`react-advanced-odontogram/style.layer.css`** — the same stylesheet inside
+   `@layer odontogram`, for hosts that order their CSS with cascade layers
+   (Tailwind CSS 4 and others): unlayered CSS would otherwise beat every layered
+diff --git a/lang/README-en.md b/lang/README-en.md
+index b0cbb7c..d7da38e 100644
+--- a/lang/README-en.md
++++ b/lang/README-en.md
+@@ -601,6 +601,9 @@ npm run docs           # Generate TypeDoc docs in docs/
+ | `setNumberingSystem(system)` | Switch between FDI, Universal, Palmer |
+ | `clearSelection()` | Deselect all teeth |
+ | `getSelectedTeeth()` | Currently selected teeth (FDI numbers), in selection order |
++| `getActiveTooth()` | The active tooth (the one the controls show), or `null` |
++| `selectTeeth(teeth, { activeTooth? })` | Select teeth from the host (unknown numbers ignored, `[]` clears); works in read-only mode |
++| `onSelectionChange(listener)` | Subscribe to selection changes only — `(teeth, activeTooth) => void`, fired when either changes; returns an unsubscribe function |
+ | `getNumberingSystem()` | The tooth-numbering system currently active |
+ | `getScreenToothSpacing()` / `setScreenToothSpacing(v)` | Get/set the on-screen inter-tooth spacing |
+ | `getScreenToothNumberSize()` / `setScreenToothNumberSize(v)` | Get/set the tooth-number size |
+diff --git a/src/App.tsx b/src/App.tsx
+index 8c5db82..5c418ec 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -1,12 +1,12 @@
+ // Part of React Advanced Odontogram - https://github.com/ZoliQua/React-Advanced-Odontogram
+ // Created by Zoltan Dul (https://github.com/ZoliQua) 2025-2026
+ 
+-import { destroyOdontogram, initOdontogram, setNumberingSystem, clearSelection, getSelectedTeeth, setOcclusalVisible, setWisdomVisible, setShowBase, setHealthyPulpVisible, registerPlugins, setPluginState, getPluginState, getToothStateSummary, getOdontogramSummary, formatToothLabel, onStateChange, setReadOnly, getReadOnly, setNotesEnabled, getNotesEnabled, setIcdasEnabled, getIcdasEnabled, setPulpDetailLevel, getPulpDetailLevel, setSecondaryCariesMode, getSecondaryCariesMode, setRootCariesMode, getRootCariesMode, setRadiographicDepthMode, getRadiographicDepthMode, setCariesDepthEnabled, getCariesDepthEnabled, setWearDetailLevel, getWearDetailLevel, setDiscolorationDetailLevel, getDiscolorationDetailLevel, setSurfaceNotation, getSurfaceNotation, exportFhir, exportImage, exportSvg, setImportFormat, openPerioOverlay, closePerioOverlay, isPerioOverlayOpen, getPerioViewMode, setPerioViewMode, getDiagnosisCodingPack, setDiagnosisCodingPack, getSnomedEnabled, setSnomedEnabled, getPerioRowVisibility, setPerioRowVisibility, getPerioIndexNameMode, setPerioIndexNameMode, getPdfSettings, setPdfSettings, isDualStateConfirmPending, acceptDualStateConfirm, cancelDualStateConfirm, hasAnyPerioData, getChartMode, setChartMode, getStatusChart, getPlanChart, setPlanChart, getPlanChanges, compareExams, exportStatus, importStatus, exportPdf, exportPerioImage, exportPerioSvg, getFillingDefectEnabled, setFillingDefectEnabled, getFillingComplexity, setFillingComplexity, getFissureSealingEnabled, setFissureSealingEnabled, getFillingMaterialAvailability, setFillingMaterialAvailability, rewireControls, rebuildGrid, getToothAnatomy, setToothAnatomy, getNumberingSystem, getScreenToothSpacing, setScreenToothSpacing, getScreenToothNumberSize, setScreenToothNumberSize, getSelectionColor, setSelectionColor, getSelectionBorderStyle, setSelectionBorderStyle, getToothInfoVisible, setToothInfoVisible } from "./odontogram";
+-export { clearSelection, getSelectedTeeth, setOcclusalVisible, setWisdomVisible, setShowBase, setHealthyPulpVisible, registerPlugins, setPluginState, getPluginState, getToothStateSummary, getOdontogramSummary, formatToothLabel, onStateChange, setReadOnly, getReadOnly, setNotesEnabled, getNotesEnabled, setIcdasEnabled, getIcdasEnabled, setPulpDetailLevel, getPulpDetailLevel, setSecondaryCariesMode, getSecondaryCariesMode, setRootCariesMode, getRootCariesMode, setRadiographicDepthMode, getRadiographicDepthMode, setCariesDepthEnabled, getCariesDepthEnabled, setWearDetailLevel, getWearDetailLevel, setDiscolorationDetailLevel, getDiscolorationDetailLevel, setSurfaceNotation, getSurfaceNotation, exportFhir, exportImage, exportSvg, setImportFormat, getPerioViewMode, setPerioViewMode, getDiagnosisCodingPack, setDiagnosisCodingPack, getSnomedEnabled, setSnomedEnabled, getPerioRowVisibility, setPerioRowVisibility, getPerioIndexNameMode, setPerioIndexNameMode, getPdfSettings, setPdfSettings, isDualStateConfirmPending, acceptDualStateConfirm, cancelDualStateConfirm, initOdontogram, destroyOdontogram, setNumberingSystem, getChartMode, setChartMode, getStatusChart, getPlanChart, setPlanChart, getPlanChanges, compareExams, openPerioOverlay, closePerioOverlay, isPerioOverlayOpen, hasAnyPerioData, exportStatus, importStatus, exportPdf, exportPerioImage, exportPerioSvg, getFillingDefectEnabled, setFillingDefectEnabled, getFillingComplexity, setFillingComplexity, getFissureSealingEnabled, setFissureSealingEnabled, getFillingMaterialAvailability, setFillingMaterialAvailability, rewireControls, rebuildGrid, getToothAnatomy, setToothAnatomy, getNumberingSystem, getScreenToothSpacing, setScreenToothSpacing, getScreenToothNumberSize, setScreenToothNumberSize, getSelectionColor, setSelectionColor, getSelectionBorderStyle, setSelectionBorderStyle, getToothInfoVisible, setToothInfoVisible };
++import { destroyOdontogram, initOdontogram, setNumberingSystem, clearSelection, getSelectedTeeth, getActiveTooth, selectTeeth, onSelectionChange, setOcclusalVisible, setWisdomVisible, setShowBase, setHealthyPulpVisible, registerPlugins, setPluginState, getPluginState, getToothStateSummary, getOdontogramSummary, formatToothLabel, onStateChange, setReadOnly, getReadOnly, setNotesEnabled, getNotesEnabled, setIcdasEnabled, getIcdasEnabled, setPulpDetailLevel, getPulpDetailLevel, setSecondaryCariesMode, getSecondaryCariesMode, setRootCariesMode, getRootCariesMode, setRadiographicDepthMode, getRadiographicDepthMode, setCariesDepthEnabled, getCariesDepthEnabled, setWearDetailLevel, getWearDetailLevel, setDiscolorationDetailLevel, getDiscolorationDetailLevel, setSurfaceNotation, getSurfaceNotation, exportFhir, exportImage, exportSvg, setImportFormat, openPerioOverlay, closePerioOverlay, isPerioOverlayOpen, getPerioViewMode, setPerioViewMode, getDiagnosisCodingPack, setDiagnosisCodingPack, getSnomedEnabled, setSnomedEnabled, getPerioRowVisibility, setPerioRowVisibility, getPerioIndexNameMode, setPerioIndexNameMode, getPdfSettings, setPdfSettings, isDualStateConfirmPending, acceptDualStateConfirm, cancelDualStateConfirm, hasAnyPerioData, getChartMode, setChartMode, getStatusChart, getPlanChart, setPlanChart, getPlanChanges, compareExams, exportStatus, importStatus, exportPdf, exportPerioImage, exportPerioSvg, getFillingDefectEnabled, setFillingDefectEnabled, getFillingComplexity, setFillingComplexity, getFissureSealingEnabled, setFissureSealingEnabled, getFillingMaterialAvailability, setFillingMaterialAvailability, rewireControls, rebuildGrid, getToothAnatomy, setToothAnatomy, getNumberingSystem, getScreenToothSpacing, setScreenToothSpacing, getScreenToothNumberSize, setScreenToothNumberSize, getSelectionColor, setSelectionColor, getSelectionBorderStyle, setSelectionBorderStyle, getToothInfoVisible, setToothInfoVisible } from "./odontogram";
++export { clearSelection, getSelectedTeeth, getActiveTooth, selectTeeth, onSelectionChange, setOcclusalVisible, setWisdomVisible, setShowBase, setHealthyPulpVisible, registerPlugins, setPluginState, getPluginState, getToothStateSummary, getOdontogramSummary, formatToothLabel, onStateChange, setReadOnly, getReadOnly, setNotesEnabled, getNotesEnabled, setIcdasEnabled, getIcdasEnabled, setPulpDetailLevel, getPulpDetailLevel, setSecondaryCariesMode, getSecondaryCariesMode, setRootCariesMode, getRootCariesMode, setRadiographicDepthMode, getRadiographicDepthMode, setCariesDepthEnabled, getCariesDepthEnabled, setWearDetailLevel, getWearDetailLevel, setDiscolorationDetailLevel, getDiscolorationDetailLevel, setSurfaceNotation, getSurfaceNotation, exportFhir, exportImage, exportSvg, setImportFormat, getPerioViewMode, setPerioViewMode, getDiagnosisCodingPack, setDiagnosisCodingPack, getSnomedEnabled, setSnomedEnabled, getPerioRowVisibility, setPerioRowVisibility, getPerioIndexNameMode, setPerioIndexNameMode, getPdfSettings, setPdfSettings, isDualStateConfirmPending, acceptDualStateConfirm, cancelDualStateConfirm, initOdontogram, destroyOdontogram, setNumberingSystem, getChartMode, setChartMode, getStatusChart, getPlanChart, setPlanChart, getPlanChanges, compareExams, openPerioOverlay, closePerioOverlay, isPerioOverlayOpen, hasAnyPerioData, exportStatus, importStatus, exportPdf, exportPerioImage, exportPerioSvg, getFillingDefectEnabled, setFillingDefectEnabled, getFillingComplexity, setFillingComplexity, getFissureSealingEnabled, setFissureSealingEnabled, getFillingMaterialAvailability, setFillingMaterialAvailability, rewireControls, rebuildGrid, getToothAnatomy, setToothAnatomy, getNumberingSystem, getScreenToothSpacing, setScreenToothSpacing, getScreenToothNumberSize, setScreenToothNumberSize, getSelectionColor, setSelectionColor, getSelectionBorderStyle, setSelectionBorderStyle, getToothInfoVisible, setToothInfoVisible };
+ export { default as PerioChart } from "./PerioChart";
+ export type { PulpDetailLevel, SecondaryCariesMode, RootCariesMode, RadiographicDepthMode, ToothDetailLevel, SurfaceNotation, PerioViewMode, PerioRowId, PerioIndexNameMode, ToothAnatomy, ScreenToothSpacing, ScreenToothNumberSize, SelectionBorderStyle } from "./odontogram";
+ export type { OdontogramSummary, OdontogramSummarySection } from "./odontogram";
+-export type { ExamComparison } from "./odontogram";
++export type { ExamComparison, SelectionChangeListener } from "./odontogram";
+ export { PROGRESSION_MM } from "./state/examCompare";
+ export type { PerioExamComparison, PerioExamAggregate, PerioSiteDelta } from "./state/examCompare";
+ export type { FhirExportOptions } from "./fhir/types";
+diff --git a/src/__tests__/parity/api-surface-golden.json b/src/__tests__/parity/api-surface-golden.json
+index 745d3b3..85435db 100644
+--- a/src/__tests__/parity/api-surface-golden.json
++++ b/src/__tests__/parity/api-surface-golden.json
+@@ -42,6 +42,7 @@
+     "getActiveFillings": "function",
+     "getActiveOrtho": "function",
+     "getActiveRootPerio": "function",
++    "getActiveTooth": "function",
+     "getActiveToothDetails": "function",
+     "getCariesDepthEnabled": "function",
+     "getCariesDepthOptions": "function",
+@@ -89,6 +90,7 @@
+     "isDualStateConfirmPending": "function",
+     "isPerioOverlayOpen": "function",
+     "isPersistenceEnabled": "function",
++    "onSelectionChange": "function",
+     "onStateChange": "function",
+     "openCariesDepthPopup": "function",
+     "openFillingDefectPopup": "function",
+@@ -100,6 +102,7 @@
+     "resetTooth": "function",
+     "rewireControls": "function",
+     "rootCariesOptions": "function",
++    "selectTeeth": "function",
+     "setApicalDxForSelection": "function",
+     "setBridgePillarForSelection": "function",
+     "setBrokenDistalForSelection": "function",
+@@ -312,6 +315,7 @@
+     "getActiveFillings": "function",
+     "getActiveOrtho": "function",
+     "getActiveRootPerio": "function",
++    "getActiveTooth": "function",
+     "getActiveToothDetails": "function",
+     "getCariesDepthEnabled": "function",
+     "getCariesDepthOptions": "function",
+@@ -396,6 +400,7 @@
+     "isUpperTooth": "function",
+     "namespaceIds": "function",
+     "nextPerioCell": "function",
++    "onSelectionChange": "function",
+     "onStateChange": "function",
+     "openCariesDepthPopup": "function",
+     "openFillingDefectPopup": "function",
+@@ -419,6 +424,7 @@
+     "rootCariesDisplayValue": "function",
+     "rootCariesOptions": "function",
+     "secondaryCariesOptions": "function",
++    "selectTeeth": "function",
+     "setApicalDxForSelection": "function",
+     "setBridgePillarForSelection": "function",
+     "setBrokenDistalForSelection": "function",
+diff --git a/src/__tests__/selection-api.test.ts b/src/__tests__/selection-api.test.ts
+new file mode 100644
+index 0000000..b3a73ef
+--- /dev/null
++++ b/src/__tests__/selection-api.test.ts
+@@ -0,0 +1,90 @@
++// Part of React Advanced Odontogram - https://github.com/ZoliQua/React-Advanced-Odontogram
++// Created by Zoltan Dul (https://github.com/ZoliQua) 2025-2026
++
++// Host-driven selection: selectTeeth() selects from outside the chart (a list,
++// a plan row), getActiveTooth() reads the tooth the controls show, and
++// onSelectionChange() follows the selection without firing on chart edits.
++import { describe, it, expect, beforeEach, vi } from "vitest";
++import * as App from "../App";
++import {
++  clearSelection, getActiveTooth, getSelectedTeeth, onSelectionChange, selectTeeth,
++  __resetChartStateForTest, onStateChange,
++} from "../odontogram";
++
++beforeEach(() => { __resetChartStateForTest(); clearSelection(); });
++
++describe("selectTeeth", () => {
++  it("selects the given teeth in order and makes the last one active", () => {
++    selectTeeth([16, 26, 36]);
++    expect(getSelectedTeeth()).toEqual([16, 26, 36]);
++    expect(getActiveTooth()).toBe(36);
++  });
++
++  it("honours an explicit active tooth only when it is selected", () => {
++    selectTeeth([16, 26], { activeTooth: 16 });
++    expect(getActiveTooth()).toBe(16);
++    selectTeeth([16, 26], { activeTooth: 11 });
++    expect(getActiveTooth()).toBe(26);
++  });
++
++  it("ignores unknown and duplicate tooth numbers", () => {
++    selectTeeth([16, 99, 16, 0, 47]);
++    expect(getSelectedTeeth()).toEqual([16, 47]);
++  });
++
++  it("clears the selection with an empty list", () => {
++    selectTeeth([21]);
++    selectTeeth([]);
++    expect(getSelectedTeeth()).toEqual([]);
++    expect(getActiveTooth()).toBeNull();
++  });
++});
++
++describe("onSelectionChange", () => {
++  it("reports the selection and the active tooth", () => {
++    const listener = vi.fn();
++    const off = onSelectionChange(listener);
++    selectTeeth([11, 21]);
++    expect(listener).toHaveBeenLastCalledWith([11, 21], 21);
++    clearSelection();
++    expect(listener).toHaveBeenLastCalledWith([], null);
++    off();
++  });
++
++  it("does not fire again when nothing changed, and stops after unsubscribing", () => {
++    const listener = vi.fn();
++    const off = onSelectionChange(listener);
++    selectTeeth([31]);
++    selectTeeth([31]);
++    expect(listener).toHaveBeenCalledTimes(1);
++    off();
++    selectTeeth([32]);
++    expect(listener).toHaveBeenCalledTimes(1);
++  });
++
++  it("still notifies onStateChange listeners on a selection change", () => {
++    const state = vi.fn();
++    const off = onStateChange(state);
++    selectTeeth([44]);
++    expect(state).toHaveBeenCalled();
++    off();
++  });
++
++  it("keeps a failing listener from breaking the others", () => {
++    const error = vi.spyOn(console, "error").mockImplementation(() => {});
++    const good = vi.fn();
++    const offBad = onSelectionChange(() => { throw new Error("boom"); });
++    const offGood = onSelectionChange(good);
++    selectTeeth([13]);
++    expect(good).toHaveBeenCalledWith([13], 13);
++    offBad(); offGood(); error.mockRestore();
++  });
++});
++
++describe("public entry point", () => {
++  it("exports the selection API", () => {
++    expect(typeof App.selectTeeth).toBe("function");
++    expect(typeof App.getActiveTooth).toBe("function");
++    expect(typeof App.onSelectionChange).toBe("function");
++  });
++});
+diff --git a/src/odontogram.ts b/src/odontogram.ts
+index e754667..e3fba84 100644
+--- a/src/odontogram.ts
++++ b/src/odontogram.ts
+@@ -4841,6 +4841,7 @@ function updateSelectionUI(){
+   // the previously-active tooth's state. Selection funnels through here and the
+   // edit path (applyToSelected) notifies on its own, so this adds no double-fire.
+   notifyStateChange();
++  emitSelectionChange();
+ }
+ 
+ // ---- Touch: Zoom Popover ----
+@@ -8165,6 +8166,58 @@ export function clearSelection(){
+ export function getSelectedTeeth(): number[] {
+   return Array.from(selectedTeeth) as number[];
+ }
++
++/**
++ * The active tooth — the one the editing controls show — or `null` when nothing
++ * is selected. With several teeth selected it is the one most recently added.
++ */
++export function getActiveTooth(): number | null {
++  return activeTooth && selectedTeeth.has(activeTooth) ? (activeTooth as number) : null;
++}
++
++/** Listener for {@link onSelectionChange}. */
++export type SelectionChangeListener = (teeth: number[], activeTooth: number | null) => void;
++
++const selectionListeners = new Set<SelectionChangeListener>();
++let lastSelectionKey = "";
++
++/** Fire selection listeners when the selection or the active tooth changed. */
++function emitSelectionChange(){
++  const teeth = getSelectedTeeth();
++  const active = getActiveTooth();
++  const key = `${teeth.join(",")}|${active ?? ""}`;
++  if(key === lastSelectionKey) return;
++  lastSelectionKey = key;
++  for(const listener of Array.from(selectionListeners)){
++    try{ listener(teeth.slice(), active); }
++    catch(e){ console.error("odontogram selection listener failed", e); }
++  }
++}
++
++/**
++ * Subscribe to selection changes only: the listener receives the selected teeth
++ * (FDI numbers, in selection order) and the active tooth, and runs only when
++ * one of them changed — unlike {@link onStateChange}, which also fires for every
++ * chart edit. Returns an unsubscribe function.
++ */
++export function onSelectionChange(listener: SelectionChangeListener): () => void {
++  selectionListeners.add(listener);
++  return () => { selectionListeners.delete(listener); };
++}
++
++/**
++ * Select teeth from the host (a list, a search result, a treatment plan row).
++ * Unknown tooth numbers are ignored; an empty list clears the selection. The
++ * active tooth is `options.activeTooth` when it is among `teeth`, else the last
++ * one. Works in read-only mode too: it is a programmatic selection, not an edit.
++ */
++export function selectTeeth(teeth: readonly number[], options: { activeTooth?: number } = {}): void {
++  const valid = teeth.filter((tn, i) => ALL_TEETH.includes(tn) && teeth.indexOf(tn) === i);
++  selectedTeeth = new Set(valid);
++  const wanted = options.activeTooth;
++  activeTooth = wanted !== undefined && selectedTeeth.has(wanted) ? wanted : (valid[valid.length - 1] ?? null);
++  updateSelectionUI();
++}
+ /**
+  * Register one or more custom SVG plugins. Plugins can inject visual overlays
+  * into the tooth SVG and maintain per-tooth custom state included in export/import.
+-- 
+2.43.0
+

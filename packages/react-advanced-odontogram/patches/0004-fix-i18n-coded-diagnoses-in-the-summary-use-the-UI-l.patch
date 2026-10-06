@@ -1,0 +1,132 @@
+From a422de348ff65486ab3a1da01ae8dad4da963fac Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 6 Oct 2026 10:09:42 +0000
+Subject: [PATCH 4/5] fix(i18n): coded diagnoses in the summary use the UI
+ language
+
+The tooltip and the whole-mouth summary printed every coded diagnosis with
+its WHO ICD-10 title, in English, in every language. Outside English they now
+use the language's dx.<key> name (already used by the active-diagnoses card)
+next to the same ICD-10 code. English keeps the DX-8 refined WHO titles; the
+FHIR export still carries the WHO titles.
+
+Tests: dx-summary-language.test.ts (en, fr, ar, hu, whole-mouth summary).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01LCyGZy1hJThR67oFx5pzCS
+---
+ CHANGELOG.md                              |  7 ++++
+ src/__tests__/dx-summary-language.test.ts | 39 +++++++++++++++++++++++
+ src/odontogram.ts                         | 18 +++++++++--
+ 3 files changed, 62 insertions(+), 2 deletions(-)
+ create mode 100644 src/__tests__/dx-summary-language.test.ts
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index ea2b92a..7e1a0c3 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -67,6 +67,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
+ 
+ ### Changed
+ 
++- **Coded diagnoses read in the UI language.** The tooltip and the whole-mouth
++  summary printed every coded diagnosis with its WHO ICD-10 title, in English,
++  whatever the language ("Deposits [accretions] on teeth (K03.6)" in a French
++  chart). Outside English they now use the language's own `dx.<key>` name — the
++  one the active-diagnoses card already shows — next to the same code
++  ("Tartre dentaire (K03.6)"). English keeps the (DX-8 refined) WHO titles, and
++  the FHIR export is unchanged.
+ - **The stylesheet no longer styles the host page.** `dist/style.css` used to
+   ship `html`/`body`/`*` rules, a global `select` style, an `!important`
+   `.hidden` class and eight short theme variables on `:root` (`--bg`, `--card`,
+diff --git a/src/__tests__/dx-summary-language.test.ts b/src/__tests__/dx-summary-language.test.ts
+new file mode 100644
+index 0000000..beffd78
+--- /dev/null
++++ b/src/__tests__/dx-summary-language.test.ts
+@@ -0,0 +1,39 @@
++// Part of React Advanced Odontogram - https://github.com/ZoliQua/React-Advanced-Odontogram
++// Created by Zoltan Dul (https://github.com/ZoliQua) 2025-2026
++
++// Coded diagnoses in the tooltip / whole-mouth summary: English keeps the WHO
++// ICD-10 title, other languages show their own `dx.<key>` name; the code stays.
++import { describe, it, expect, afterEach } from "vitest";
++import { getOdontogramSummary, getToothStateSummary, __setToothStateForTest, __resetChartStateForTest } from "../odontogram";
++import { setI18nLanguage, t } from "../i18n/useI18n";
++
++afterEach(async () => { await setI18nLanguage("en"); __resetChartStateForTest(); });
++
++function calculusTooth() {
++  __setToothStateForTest(26, { toothSelection: "tooth-base", calculus: true });
++}
++
++describe("coded diagnosis names", () => {
++  it("English shows the WHO title with its code", async () => {
++    await setI18nLanguage("en");
++    calculusTooth();
++    expect(getToothStateSummary(26)).toContain("Deposits [accretions] on teeth (K03.6)");
++  });
++
++  it.each(["fr", "ar", "hu"] as const)("%s shows its own name with the code", async (lang) => {
++    await setI18nLanguage(lang);
++    calculusTooth();
++    const name = t("dx.calculus");
++    expect(name).not.toBe("dx.calculus");
++    const lines = getToothStateSummary(26);
++    expect(lines).toContain(`${name} (K03.6)`);
++    expect(lines.join(" ")).not.toContain("Deposits [accretions]");
++  });
++
++  it("the whole-mouth summary follows the same rule", async () => {
++    await setI18nLanguage("fr");
++    calculusTooth();
++    const text = JSON.stringify(getOdontogramSummary());
++    expect(text).toContain(`${t("dx.calculus")} (K03.6)`);
++  });
++});
+diff --git a/src/odontogram.ts b/src/odontogram.ts
+index e3fba84..86e0e32 100644
+--- a/src/odontogram.ts
++++ b/src/odontogram.ts
+@@ -2365,6 +2365,20 @@ export function getToothDiagnoses(toothNo: number): ToothDiagnosis[] {
+   return list.sort((a, b) => (a.icd10 ?? "￿").localeCompare(b.icd10 ?? "￿"));
+ }
+ 
++/**
++ * A coded diagnosis's name in the tooltip and the whole-mouth summary. English
++ * shows the WHO ICD-10 title (the official English name, refined by DX-8 —
++ * "Caries of dentine" rather than "Dental caries"); every other language shows
++ * its own `dx.<key>` name, which the active-diagnoses card already uses. The
++ * ICD-10 code stays next to it, and the FHIR export keeps the WHO title.
++ */
++function diagnosisUiName(d: ToothDiagnosis): string {
++  if(getI18nLanguage() === "en") return d.icd10Display;
++  const key = `dx.${d.key}`;
++  const name = t(key);
++  return name !== key ? name : d.icd10Display;
++}
++
+ /** One row in the active-tooth diagnoses card: a RAW rule-derived key (whether
+  *  or not it's currently suppressed) or a key the user explicitly ADDED that no
+  *  rule would have derived. */
+@@ -3902,7 +3916,7 @@ function getStateSummary(toothNo: number): string[]{
+   // a rule-derived one, mirroring how "proposed" plan findings are visually
+   // tagged elsewhere.
+   for(const d of getToothDiagnoses(toothNo)){
+-    const line = d.icd10 ? `${d.icd10Display} (${d.icd10})` : `${d.icd10Display} (${t("diagnoses.noCode")})`;
++    const line = d.icd10 ? `${diagnosisUiName(d)} (${d.icd10})` : `${diagnosisUiName(d)} (${t("diagnoses.noCode")})`;
+     summary.push(d.source === "added" ? `+ ${line}` : line);
+   }
+ 
+@@ -8595,7 +8609,7 @@ export function getOdontogramSummary(): OdontogramSummary {
+     // never drifts from the tooltip / active-diagnoses card). An explicitly
+     // ADDED (not rule-derived) code is prefixed, mirroring the tooltip.
+     for(const d of getToothDiagnoses(toothNo)){
+-      const line = d.icd10 ? `${d.icd10Display} (${d.icd10})` : `${d.icd10Display} (${t("diagnoses.noCode")})`;
++      const line = d.icd10 ? `${diagnosisUiName(d)} (${d.icd10})` : `${diagnosisUiName(d)} (${t("diagnoses.noCode")})`;
+       dxs.push(d.source === "added" ? `+ ${line}` : line);
+     }
+     if(dxs.length) diagnoses.push(`${lbl(toothNo)} (${dxs.join("; ")})`);
+-- 
+2.43.0
+

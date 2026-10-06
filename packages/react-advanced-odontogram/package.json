@@ -1,0 +1,33 @@
+{
+  "name": "react-advanced-odontogram",
+  "version": "2.6.0-dalidoc.1",
+  "description": "React Advanced Odontogram (ZoliQua) built from upstream f3d80c4 + DaliDoc patches — see README.md.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "sideEffects": [
+    "**/*.css"
+  ],
+  "main": "./dist/odontogram.js",
+  "module": "./dist/odontogram.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/odontogram.js"
+    },
+    "./style.css": "./dist/style.css",
+    "./style.layer.css": "./dist/style.layer.css"
+  },
+  "files": [
+    "dist",
+    "LICENSE"
+  ],
+  "peerDependencies": {
+    "react": "^18 || ^19",
+    "react-dom": "^18 || ^19"
+  },
+  "dependencies": {
+    "jspdf": "^4.2.1"
+  }
+}

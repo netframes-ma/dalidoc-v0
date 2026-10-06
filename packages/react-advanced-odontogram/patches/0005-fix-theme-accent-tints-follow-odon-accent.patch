@@ -1,0 +1,848 @@
+From a810de2ef9644b9b145acc1c53ccdcf3f69533b7 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 6 Oct 2026 10:14:38 +0000
+Subject: [PATCH 5/5] fix(theme): accent tints follow --odon-accent
+
+~100 button tints, active states and focus rings hard-coded the default
+blues (rgba(59,123,255,..); rgba(96,165,250,..) in dark mode) and greens
+(rgba(18,185,129,..)), so a theme accent only recoloured part of the UI.
+
+They are now color-mix() tints of --_odon-accent, a new --_odon-accent-dark
+(dark-theme accent, defaults to the old #60a5fa) and --_odon-accent2, with
+the stock colours as defaults: the default look is unchanged. The .dark and
+.dark .odontogram-root blocks re-resolve the accents so a nested dark scope
+can carry its own --odon-accent. Perio data colours are untouched.
+
+New public --odon-accent-fg (default #fff) is the text on solid-accent
+controls (active Status/Plan and perio switches, furcation and Miller
+grades), so a light accent keeps readable labels.
+
+Also fixes the dark-mode perio-overlay switch: a later .dark rule with the
+same specificity wiped the active background (dark text on a near-black
+chip); the active switch now uses the dark accent.
+
+Tests: accent-colours.test.ts.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01LCyGZy1hJThR67oFx5pzCS
+---
+ CHANGELOG.md                         |  15 ++
+ lang/README-en.md                    |   3 +
+ src/__tests__/accent-colours.test.ts |  44 +++++
+ src/index.css                        | 236 ++++++++++++++-------------
+ 4 files changed, 187 insertions(+), 111 deletions(-)
+ create mode 100644 src/__tests__/accent-colours.test.ts
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 7e1a0c3..409e08d 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -74,6 +74,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
+   one the active-diagnoses card already shows — next to the same code
+   ("Tartre dentaire (K03.6)"). English keeps the (DX-8 refined) WHO titles, and
+   the FHIR export is unchanged.
++- **Accent tints follow the theme accent.** About a hundred button tints,
++  active states and focus rings were hard-coded blues
++  (`rgba(59,123,255,…)`, `rgba(96,165,250,…)` in dark mode) and greens
++  (`rgba(18,185,129,…)`), so `themeConfig.colors.accent` / `--odon-accent` only
++  recoloured part of the UI. They are now `color-mix()` tints of the accent
++  variables (`--_odon-accent`, a new `--_odon-accent-dark` for the dark theme,
++  `--_odon-accent2`), with the stock colours as defaults — the default look is
++  unchanged. A nested `.dark` scope re-resolves the accents too. Data colours
++  (perio pocket band, heat map) are untouched. New public `--odon-accent-fg`
++  (default `#fff`) sets the text on solid-accent controls (active Status/Plan
++  and perio switches, furcation and Miller grades), so a light accent — the
++  usual choice in a dark theme — keeps readable labels.
++- **Dark mode: the active perio-overlay switch is visible again.** A later
++  `.dark .perio-overlay-switch-btn` rule with the same specificity wiped the
++  active button's background, leaving dark text on a near-black chip.
+ - **The stylesheet no longer styles the host page.** `dist/style.css` used to
+   ship `html`/`body`/`*` rules, a global `select` style, an `!important`
+   `.hidden` class and eight short theme variables on `:root` (`--bg`, `--card`,
+diff --git a/lang/README-en.md b/lang/README-en.md
+index 2890901..749e629 100644
+--- a/lang/README-en.md
++++ b/lang/README-en.md
+@@ -539,6 +539,9 @@ export default function Host(){
+ />
+ ```
+ 
++**Accent text:** `--odon-accent-fg` (default `#fff`) is the text colour on
++solid-accent controls; set it to a dark colour when your accent is light.
++
+ **Material colours:** restorations and fillings read CSS variables in both
+ anatomy profiles, with the stock colour as the fallback — set any of them on
+ `.odontogram-root` (or `:root`) to recolour a material:
+diff --git a/src/__tests__/accent-colours.test.ts b/src/__tests__/accent-colours.test.ts
+new file mode 100644
+index 0000000..a595bad
+--- /dev/null
++++ b/src/__tests__/accent-colours.test.ts
+@@ -0,0 +1,44 @@
++// Part of React Advanced Odontogram - https://github.com/ZoliQua/React-Advanced-Odontogram
++// Created by Zoltan Dul (https://github.com/ZoliQua) 2025-2026
++
++// Accent-tinted UI colours (button tints, active states, focus rings) follow
++// the --odon-accent / --odon-accent2 theme variables instead of hard-coded
++// blues and greens; the defaults render exactly as before. Data-visualisation
++// colours (perio pocket band, heat map) are deliberately left alone.
++import { describe, it, expect } from "vitest";
++import { readFileSync } from "node:fs";
++import { fileURLToPath } from "node:url";
++
++const testFileUrl = import.meta.url;
++const css = readFileSync(fileURLToPath(new URL("../index.css", testFileUrl)), "utf8");
++const lines = css.split("\n").filter((l) => !/^\s*--_odon-accent(2|-dark|-fg)?\s*:/.test(l));
++
++describe("accent colours", () => {
++  it("has no hard-coded accent tints left", () => {
++    const offenders = lines.filter((l) => /#3b7bff\b|#12b981\b|rgba\(\s*(59\s*,\s*123\s*,\s*255|96\s*,\s*165\s*,\s*250|18\s*,\s*185\s*,\s*129)\s*,/i.test(l));
++    expect(offenders).toEqual([]);
++  });
++
++  it("keeps the stock colours as the variable defaults", () => {
++    expect(css).toMatch(/--_odon-accent:\s*var\(--odon-accent, #3b7bff\)/);
++    expect(css).toMatch(/--_odon-accent2:\s*var\(--odon-accent2, #12b981\)/);
++    expect(css).toMatch(/--_odon-accent-dark:\s*var\(--odon-accent, #60a5fa\)/);
++  });
++
++  it("lets the host set the text colour on a solid accent", () => {
++    expect(css).toMatch(/--_odon-accent-fg:\s*var\(--odon-accent-fg, #fff\)/);
++    const active = css.slice(css.indexOf(".chart-mode-btn.is-active{"), css.indexOf("}", css.indexOf(".chart-mode-btn.is-active{")));
++    expect(active).toContain("color: var(--_odon-accent-fg)");
++  });
++
++  it("keeps the active perio switch visible in dark mode", () => {
++    expect(css).toContain(".dark .perio-overlay-switch-btn:not(.is-active){");
++    expect(css).toMatch(/\.dark \.perio-overlay-switch-btn\.is-active\{[^}]*background: var\(--_odon-accent-dark\)/);
++  });
++
++  it("re-resolves the accents in a nested .dark scope", () => {
++    const dark = css.slice(css.indexOf("\n.dark{"), css.indexOf("}", css.indexOf("\n.dark{")));
++    expect(dark).toContain("--_odon-accent:");
++    expect(dark).toContain("--_odon-accent-dark:");
++  });
++});
+diff --git a/src/index.css b/src/index.css
+index 4f97ac4..01956dc 100644
+--- a/src/index.css
++++ b/src/index.css
+@@ -8,6 +8,8 @@
+   --_odon-line: var(--odon-line, #d7e0ec);
+   --_odon-accent: var(--odon-accent, #3b7bff);
+   --_odon-accent2: var(--odon-accent2, #12b981);
++  --_odon-accent-dark: var(--odon-accent, #60a5fa);
++  --_odon-accent-fg: var(--odon-accent-fg, #fff);
+ }
+ /* When themeConfig is applied via JS, --odon-* properties are set on .odontogram-root.
+    Re-resolve the shorthand variables so children pick up the overrides. */
+@@ -20,6 +22,8 @@
+   --_odon-line: var(--odon-line, #d7e0ec);
+   --_odon-accent: var(--odon-accent, #3b7bff);
+   --_odon-accent2: var(--odon-accent2, #12b981);
++  --_odon-accent-dark: var(--odon-accent, #60a5fa);
++  --_odon-accent-fg: var(--odon-accent-fg, #fff);
+   color: var(--_odon-text);
+ }
+ .dark .odontogram-root{
+@@ -29,6 +33,10 @@
+   --_odon-muted: var(--odon-muted, #94a3b8);
+   --_odon-text: var(--odon-text, #f1f5f9);
+   --_odon-line: var(--odon-line, #334155);
++  --_odon-accent: var(--odon-accent, #3b7bff);
++  --_odon-accent2: var(--odon-accent2, #12b981);
++  --_odon-accent-dark: var(--odon-accent, #60a5fa);
++  --_odon-accent-fg: var(--odon-accent-fg, #fff);
+ }
+ *{box-sizing:border-box}
+ .topbar{
+@@ -40,7 +48,7 @@
+   position:sticky; top:0; z-index:10;
+ }
+ .brand{display:flex; gap:12px; align-items:center}
+-.dot{width:10px;height:10px;border-radius:999px;background:var(--_odon-accent2); box-shadow:0 0 0 6px rgba(18,185,129,.12);}
++.dot{width:10px;height:10px;border-radius:999px;background:var(--_odon-accent2); box-shadow:0 0 0 6px color-mix(in srgb, var(--_odon-accent2) 12%, transparent);}
+ .brand-logo{height:44px; width:auto; display:block; flex:0 0 auto;}
+ .title{font-weight:700; letter-spacing:.2px}
+ .subtitle{font-size:12px; color:var(--_odon-muted); margin-top:2px}
+@@ -50,7 +58,7 @@
+ .btn{
+   border:1px solid var(--_odon-line);
+   color:var(--_odon-text);
+-  background:rgba(59,123,255,.12);
++  background:color-mix(in srgb, var(--_odon-accent) 12%, transparent);
+   padding:8px 12px; border-radius:12px;
+   cursor:pointer; font-weight:600;
+ }
+@@ -58,7 +66,7 @@
+   padding:6px 10px;
+   font-size:12px;
+ }
+-.btn:hover{background:rgba(59,123,255,.18)}
++.btn:hover{background:color-mix(in srgb, var(--_odon-accent) 18%, transparent)}
+ .btn-ghost{background:rgba(0,0,0,.04)}
+ .btn-ghost:hover{background:rgba(0,0,0,.08)}
+ .btn-danger{
+@@ -69,7 +77,7 @@
+ .btn-danger:hover{background: rgba(217,69,69,.2)}
+ .btn-toggle[aria-pressed="true"]{
+   background: rgb(100 15 235 / 20%);
+-  border-color: rgba(18,185,129,.5);
++  border-color: color-mix(in srgb, var(--_odon-accent2) 50%, transparent);
+ }
+ .btn-toggle[aria-pressed="false"]{
+   background: rgba(0,0,0,.04);
+@@ -109,14 +117,14 @@
+ }
+ .dropdown-item:disabled:hover{background: rgba(0,0,0,.04)}
+ .dropdown-item[aria-checked="true"]{
+-  background: rgba(59,123,255,.18);
+-  border-color: rgba(59,123,255,.45);
++  background: color-mix(in srgb, var(--_odon-accent) 18%, transparent);
++  border-color: color-mix(in srgb, var(--_odon-accent) 45%, transparent);
+ }
+ 
+ select{
+   appearance: none;
+   border:1px solid var(--_odon-line);
+-  background:rgba(59,123,255,.12);
++  background:color-mix(in srgb, var(--_odon-accent) 12%, transparent);
+   color:var(--_odon-text);
+   padding:8px 34px 8px 12px;
+   border-radius:12px;
+@@ -134,7 +142,7 @@ select{
+ }
+ select:focus{
+   outline:none;
+-  box-shadow: 0 0 0 3px rgba(59,123,255,.18);
++  box-shadow: 0 0 0 3px color-mix(in srgb, var(--_odon-accent) 18%, transparent);
+ }
+ 
+ .layout{
+@@ -195,10 +203,10 @@ select:focus{
+   font-size:13px;
+   cursor:pointer;
+ }
+-.chart-mode-btn:hover{background: rgba(59,123,255,.14)}
++.chart-mode-btn:hover{background: color-mix(in srgb, var(--_odon-accent) 14%, transparent)}
+ .chart-mode-btn.is-active{
+   background: var(--_odon-accent);
+-  color:#fff;
++  color: var(--_odon-accent-fg);
+ }
+ .chart-mode-btn.is-active:hover{background: var(--_odon-accent)}
+ /* Subtle-but-unmistakable chip; shown only while `.plan-mode` is active on
+@@ -211,15 +219,15 @@ select:focus{
+   font-size:11px;
+   font-weight:700;
+   letter-spacing:.4px;
+-  background: rgba(59,123,255,.16);
++  background: color-mix(in srgb, var(--_odon-accent) 16%, transparent);
+   color: var(--_odon-accent);
+-  border:1px solid rgba(59,123,255,.4);
++  border:1px solid color-mix(in srgb, var(--_odon-accent) 40%, transparent);
+ }
+ /* Plan-mode visual cue on the chart card itself, so it's always obvious
+    which chart (status vs. plan) is being edited. */
+ .chart.plan-mode{
+   border-color: var(--_odon-accent);
+-  box-shadow: 0 0 0 2px rgba(59,123,255,.18);
++  box-shadow: 0 0 0 2px color-mix(in srgb, var(--_odon-accent) 18%, transparent);
+ }
+ 
+ /* R2-C Task 2: "dashed = proposed" legend. Always in the DOM (see App.tsx);
+@@ -348,7 +356,7 @@ select:focus{
+ .tooth-tile.placeholder .tooth-svg svg{
+   opacity:0;
+ }
+-.tooth-tile:hover{background: rgba(59,123,255,.08)}
++.tooth-tile:hover{background: color-mix(in srgb, var(--_odon-accent) 8%, transparent)}
+ .tooth-tile:active{transform: scale(.99)}
+ 
+ /* ── Selection animation ─────────────────────── */
+@@ -395,7 +403,7 @@ select:focus{
+ .tooth-tile:focus-visible{
+   outline: 2px solid var(--_odon-accent);
+   outline-offset: 2px;
+-  box-shadow: 0 0 0 3px rgba(59,123,255,.25);
++  box-shadow: 0 0 0 3px color-mix(in srgb, var(--_odon-accent) 25%, transparent);
+   z-index: 1;
+ }
+ 
+@@ -439,11 +447,11 @@ select:focus{
+ @media (prefers-reduced-motion: reduce){
+   .tooth-tile.active::after{
+     animation: none;
+-    border-color: rgba(59,123,255,.7);
++    border-color: color-mix(in srgb, var(--_odon-accent) 70%, transparent);
+   }
+   .tooth-tile.active .tooth-svg svg{
+     animation: none;
+-    filter: drop-shadow(0 0 4px rgba(59,123,255,.35));
++    filter: drop-shadow(0 0 4px color-mix(in srgb, var(--_odon-accent) 35%, transparent));
+   }
+ }
+ .tooth-svg{
+@@ -544,8 +552,8 @@ select:focus{
+ .panel-subtitle{font-size:12px;color:var(--_odon-muted); margin-top:4px}
+ .pill{
+   display:inline-block;
+-  background: rgba(18,185,129,.14);
+-  border:1px solid rgba(18,185,129,.25);
++  background: color-mix(in srgb, var(--_odon-accent2) 14%, transparent);
++  border:1px solid color-mix(in srgb, var(--_odon-accent2) 25%, transparent);
+   padding:2px 8px;
+   border-radius:999px;
+   font-weight:700;
+@@ -586,7 +594,7 @@ select:focus{
+   line-height:1;
+ }
+ .icon-btn .icon{width:16px;height:16px}
+-.icon-btn:hover{background: rgba(59,123,255,.12)}
++.icon-btn:hover{background: color-mix(in srgb, var(--_odon-accent) 12%, transparent)}
+ .icon-btn-danger{
+   color:#d94545;
+   border-color: rgba(217,69,69,.4);
+@@ -609,27 +617,27 @@ select:focus{
+    periapical-type .row, not an .inline-checks, so the rule above never matches). */
+ #calculusRow{margin-top:8px}
+ .inline-checks label{display:flex; gap:10px; align-items:center; font-size:13px; padding:6px 10px; border-radius:12px; border:1px solid var(--_odon-line); background: rgba(0,0,0,.02); cursor:pointer}
+-.inline-checks label:hover{background: rgba(59,123,255,.06)}
++.inline-checks label:hover{background: color-mix(in srgb, var(--_odon-accent) 6%, transparent)}
+ .inline-checks input[type="checkbox"]{display:none}
+ .inline-checks label:has(input[type="checkbox"]:checked){
+-  background: rgba(18,185,129,.18);
+-  border-color: rgba(18,185,129,.5);
++  background: color-mix(in srgb, var(--_odon-accent2) 18%, transparent);
++  border-color: color-mix(in srgb, var(--_odon-accent2) 50%, transparent);
+ }
+ .check-grid{display:grid; grid-template-columns: 1fr 1fr; gap:8px}
+ .check-grid label{display:flex; gap:10px; align-items:center; font-size:13px; padding:6px 8px; border-radius:12px; border:1px solid var(--_odon-line); background: rgba(0,0,0,.02); cursor:pointer}
+-.check-grid label:hover{background: rgba(59,123,255,.06)}
++.check-grid label:hover{background: color-mix(in srgb, var(--_odon-accent) 6%, transparent)}
+ .check-grid input[type="checkbox"]{display:none}
+ .check-grid label:has(input[type="checkbox"]:checked){
+-  background: rgba(18,185,129,.18);
+-  border-color: rgba(18,185,129,.5);
++  background: color-mix(in srgb, var(--_odon-accent2) 18%, transparent);
++  border-color: color-mix(in srgb, var(--_odon-accent2) 50%, transparent);
+ }
+ .surface-cross{display:grid; grid-template-columns:repeat(3,1fr); grid-template-rows:repeat(3,auto); gap:8px; max-width:340px; margin:4px auto}
+ .surface-cross .surface-cell{display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; text-align:center; padding:10px 6px; border-radius:14px; border:1px solid var(--_odon-line); background:rgba(0,0,0,.02); cursor:pointer}
+-.surface-cross .surface-cell:hover{background:rgba(59,123,255,.06)}
++.surface-cross .surface-cell:hover{background:color-mix(in srgb, var(--_odon-accent) 6%, transparent)}
+ .surface-cross .surface-cell input[type="checkbox"]{display:none}
+ .surface-cross .surface-cell .surf-letter{font-weight:700; font-size:18px; line-height:1}
+ .surface-cross .surface-cell .surf-name{font-size:11px; color:var(--_odon-muted)}
+-.surface-cross .surface-cell:has(input[type="checkbox"]:checked){background:rgba(18,185,129,.18); border-color:rgba(18,185,129,.5)}
++.surface-cross .surface-cell:has(input[type="checkbox"]:checked){background:color-mix(in srgb, var(--_odon-accent2) 18%, transparent); border-color:color-mix(in srgb, var(--_odon-accent2) 50%, transparent)}
+ .surface-cross .pos-buccal{grid-column:2; grid-row:1}
+ .surface-cross .pos-mesial{grid-column:1; grid-row:2}
+ .surface-cross .pos-occlusal{grid-column:2; grid-row:2}
+@@ -690,8 +698,8 @@ select:focus{
+    vertically like every other option group in this popup family. */
+ .odon-depth-group{display:flex; flex-direction:column; gap:4px}
+ .odon-depth-option{border:1px solid var(--_odon-line); background:rgba(0,0,0,.04); color:var(--_odon-text); padding:8px 10px; border-radius:10px; font-weight:600; cursor:pointer; text-align:start; font-size:13px}
+-.odon-depth-option:hover{background:rgba(59,123,255,.12)}
+-.odon-depth-option.is-active{border-color:var(--_odon-accent,#3b7bff); background:rgba(59,123,255,.16)}
++.odon-depth-option:hover{background:color-mix(in srgb, var(--_odon-accent) 12%, transparent)}
++.odon-depth-option.is-active{border-color:var(--_odon-accent,var(--_odon-accent)); background:color-mix(in srgb, var(--_odon-accent) 16%, transparent)}
+ .odon-depth-group-label{font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--_odon-muted,#7b8794); padding:6px 4px 2px}
+ .odon-depth-group-label:first-child{padding-top:2px}
+ .odon-depth-title{font-size:12px; font-weight:800; color:var(--_odon-text); padding:2px 4px 6px; border-bottom:1px solid var(--_odon-line); margin-bottom:2px}
+@@ -733,8 +741,8 @@ select:focus{
+   padding:0;
+ }
+ .row:has(input[type="checkbox"]:checked){
+-  background: rgba(18,185,129,.18);
+-  border-color: rgba(18,185,129,.5);
++  background: color-mix(in srgb, var(--_odon-accent2) 18%, transparent);
++  border-color: color-mix(in srgb, var(--_odon-accent2) 50%, transparent);
+ }
+ .inline-checks:has(input[type="checkbox"]:checked){
+   background:none;
+@@ -755,7 +763,7 @@ select:focus{
+ }
+ .radio-list{display:flex; flex-direction:column; gap:8px}
+ .radio-list label{display:flex; gap:10px; align-items:center; font-size:13px; padding:6px 8px; border-radius:12px; border:1px solid var(--_odon-line); background: rgba(0,0,0,.02)}
+-.radio-list label:hover{background: rgba(59,123,255,.06)}
++.radio-list label:hover{background: color-mix(in srgb, var(--_odon-accent) 6%, transparent)}
+ .divider{height:1px;background:var(--_odon-line); margin:10px 0}
+ 
+ /* SP-perio P1 Task 2: minimal, deliberately plain 6-site PD/GM/BOP/SUP grid
+@@ -795,15 +803,19 @@ select:focus{
+   --_odon-muted: var(--odon-muted, #94a3b8);
+   --_odon-text: var(--odon-text, #f1f5f9);
+   --_odon-line: var(--odon-line, #334155);
++  --_odon-accent: var(--odon-accent, #3b7bff);
++  --_odon-accent2: var(--odon-accent2, #12b981);
++  --_odon-accent-dark: var(--odon-accent, #60a5fa);
++  --_odon-accent-fg: var(--odon-accent-fg, #fff);
+ }
+ .dark .topbar{
+   background: rgba(15,23,42,.92);
+   backdrop-filter: blur(10px);
+ }
+ .dark .btn{
+-  background: rgba(96,165,250,.15);
++  background: color-mix(in srgb, var(--_odon-accent-dark) 15%, transparent);
+ }
+-.dark .btn:hover{background: rgba(96,165,250,.25)}
++.dark .btn:hover{background: color-mix(in srgb, var(--_odon-accent-dark) 25%, transparent)}
+ .dark .btn-ghost{background: rgba(255,255,255,.06)}
+ .dark .btn-ghost:hover{background: rgba(255,255,255,.12)}
+ .dark .btn-danger{
+@@ -820,11 +832,11 @@ select:focus{
+ .dark .dropdown-item{background: rgba(255,255,255,.06)}
+ .dark .dropdown-item:hover{background: rgba(255,255,255,.12)}
+ .dark .dropdown-item[aria-checked="true"]{
+-  background: rgba(96,165,250,.2);
+-  border-color: rgba(96,165,250,.45);
++  background: color-mix(in srgb, var(--_odon-accent-dark) 20%, transparent);
++  border-color: color-mix(in srgb, var(--_odon-accent-dark) 45%, transparent);
+ }
+ .dark select{
+-  background: rgba(96,165,250,.15);
++  background: color-mix(in srgb, var(--_odon-accent-dark) 15%, transparent);
+   background-image:
+     linear-gradient(45deg, transparent 50%, var(--_odon-text) 50%),
+     linear-gradient(135deg, var(--_odon-text) 50%, transparent 50%);
+@@ -840,62 +852,62 @@ select:focus{
+   border-color: var(--_odon-line);
+ }
+ .dark .chart-mode-btn{color: var(--_odon-text)}
+-.dark .chart-mode-btn:hover{background: rgba(96,165,250,.18)}
++.dark .chart-mode-btn:hover{background: color-mix(in srgb, var(--_odon-accent-dark) 18%, transparent)}
+ .dark .chart-mode-btn.is-active{
+-  background: rgba(96,165,250,.45);
++  background: color-mix(in srgb, var(--_odon-accent-dark) 45%, transparent);
+   color:#fff;
+ }
+-.dark .chart-mode-btn.is-active:hover{background: rgba(96,165,250,.45)}
++.dark .chart-mode-btn.is-active:hover{background: color-mix(in srgb, var(--_odon-accent-dark) 45%, transparent)}
+ .dark .plan-badge{
+-  background: rgba(96,165,250,.18);
++  background: color-mix(in srgb, var(--_odon-accent-dark) 18%, transparent);
+   color:#93c5fd;
+-  border-color: rgba(96,165,250,.45);
++  border-color: color-mix(in srgb, var(--_odon-accent-dark) 45%, transparent);
+ }
+ .dark .chart.plan-mode{
+-  border-color: rgba(96,165,250,.6);
+-  box-shadow: 0 0 0 2px rgba(96,165,250,.28);
++  border-color: color-mix(in srgb, var(--_odon-accent-dark) 60%, transparent);
++  box-shadow: 0 0 0 2px color-mix(in srgb, var(--_odon-accent-dark) 28%, transparent);
+ }
+ .dark .proposed-legend{color: var(--_odon-text)}
+-.dark .proposed-legend-swatch{border-top-color: rgba(96,165,250,.85)}
++.dark .proposed-legend-swatch{border-top-color: color-mix(in srgb, var(--_odon-accent-dark) 85%, transparent)}
+ .dark .tooth-label-cell{color: rgba(241,245,249,.6)}
+ .dark .tooth-label-cell:hover{color: rgba(241,245,249,1)}
+ .dark .tooth-tile{background: rgba(30,41,59,.7)}
+ .dark .tooth-tile.placeholder{background: rgba(30,41,59,.3)}
+-.dark .tooth-tile:hover{background: rgba(96,165,250,.12)}
++.dark .tooth-tile:hover{background: color-mix(in srgb, var(--_odon-accent-dark) 12%, transparent)}
+ /* Dark selection animation */
+ @keyframes odon-dash-pulse-dark{
+-  0%, 100%{ border-color: rgba(96,165,250,.45); }
+-  50%{ border-color: rgba(96,165,250,.85); }
++  0%, 100%{ border-color: color-mix(in srgb, var(--_odon-accent-dark) 45%, transparent); }
++  50%{ border-color: color-mix(in srgb, var(--_odon-accent-dark) 85%, transparent); }
+ }
+ @keyframes odon-glow-pulse-dark{
+-  0%, 100%{ filter: drop-shadow(0 0 3px rgba(96,165,250,.2)); }
+-  50%{ filter: drop-shadow(0 0 7px rgba(96,165,250,.45)); }
++  0%, 100%{ filter: drop-shadow(0 0 3px color-mix(in srgb, var(--_odon-accent-dark) 20%, transparent)); }
++  50%{ filter: drop-shadow(0 0 7px color-mix(in srgb, var(--_odon-accent-dark) 45%, transparent)); }
+ }
+ .dark .tooth-tile.active{
+-  border-color: rgba(96,165,250,.6);
+-  background: rgba(96,165,250,.08);
++  border-color: color-mix(in srgb, var(--_odon-accent-dark) 60%, transparent);
++  background: color-mix(in srgb, var(--_odon-accent-dark) 8%, transparent);
+ }
+ .dark .tooth-tile.active::after{
+-  border-color: rgba(96,165,250,.45);
++  border-color: color-mix(in srgb, var(--_odon-accent-dark) 45%, transparent);
+   animation-name: odon-dash-pulse-dark;
+ }
+ .dark .tooth-tile.active .tooth-svg svg{
+   animation-name: odon-glow-pulse-dark;
+-  filter: drop-shadow(0 0 4px rgba(96,165,250,.3));
++  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--_odon-accent-dark) 30%, transparent));
+ }
+ .dark .tooth-tile:focus-visible{
+-  outline-color: rgba(96,165,250,.8);
+-  box-shadow: 0 0 0 3px rgba(96,165,250,.25);
++  outline-color: color-mix(in srgb, var(--_odon-accent-dark) 80%, transparent);
++  box-shadow: 0 0 0 3px color-mix(in srgb, var(--_odon-accent-dark) 25%, transparent);
+ }
+ /* Dark note popover */
+ .dark .odon-note-backdrop{background: rgba(0,0,0,.55)}
+ .dark .odon-note-popover{background: var(--_odon-panel); box-shadow: 0 16px 48px rgba(0,0,0,.5)}
+ .dark .odon-note-textarea{background: rgba(255,255,255,.06); border-color: var(--_odon-line); color: var(--_odon-text)}
+-.dark .odon-note-textarea:focus{box-shadow: 0 0 0 3px rgba(96,165,250,.2); border-color: rgba(96,165,250,.5)}
++.dark .odon-note-textarea:focus{box-shadow: 0 0 0 3px color-mix(in srgb, var(--_odon-accent-dark) 20%, transparent); border-color: color-mix(in srgb, var(--_odon-accent-dark) 50%, transparent)}
+ .dark .panel{background: rgba(30,41,59,.95)}
+ .dark .card{background: rgba(30,41,59,.8); border-color: var(--_odon-line)}
+ .dark .icon-btn{background: rgba(30,41,59,.7)}
+-.dark .icon-btn:hover{background: rgba(96,165,250,.15)}
++.dark .icon-btn:hover{background: color-mix(in srgb, var(--_odon-accent-dark) 15%, transparent)}
+ .dark .icon-btn-danger{
+   color:#f87171;
+   border-color: rgba(248,113,113,.3);
+@@ -912,7 +924,7 @@ select:focus{
+ .dark .radio-list label{background: rgba(255,255,255,.04)}
+ .dark .inline-checks label:hover,
+ .dark .check-grid label:hover,
+-.dark .radio-list label:hover{background: rgba(96,165,250,.1)}
++.dark .radio-list label:hover{background: color-mix(in srgb, var(--_odon-accent-dark) 10%, transparent)}
+ .dark .row:has(input[type="checkbox"]){background: rgba(255,255,255,.04)}
+ .dark .pill{
+   background: rgba(52,211,153,.15);
+@@ -933,9 +945,9 @@ select:focus{
+   cursor:pointer;
+   transition: background .15s ease;
+ }
+-.btn-theme:hover{background: rgba(59,123,255,.12)}
++.btn-theme:hover{background: color-mix(in srgb, var(--_odon-accent) 12%, transparent)}
+ .dark .btn-theme{background: rgba(255,255,255,.06)}
+-.dark .btn-theme:hover{background: rgba(96,165,250,.15)}
++.dark .btn-theme:hover{background: color-mix(in srgb, var(--_odon-accent-dark) 15%, transparent)}
+ 
+ /* ── Note icon in label cell ─────────────────── */
+ .tooth-note-icon{
+@@ -987,8 +999,8 @@ select:focus{
+ }
+ .odon-note-textarea:focus{
+   outline: none;
+-  box-shadow: 0 0 0 3px rgba(59,123,255,.18);
+-  border-color: rgba(59,123,255,.5);
++  box-shadow: 0 0 0 3px color-mix(in srgb, var(--_odon-accent) 18%, transparent);
++  border-color: color-mix(in srgb, var(--_odon-accent) 50%, transparent);
+ }
+ .odon-note-textarea::placeholder{
+   color: var(--_odon-muted);
+@@ -1071,7 +1083,7 @@ select:focus{
+ }
+ .odon-zoom-btn{
+   border:1px solid var(--_odon-line);
+-  background: rgba(59,123,255,.08);
++  background: color-mix(in srgb, var(--_odon-accent) 8%, transparent);
+   color:var(--_odon-text);
+   padding:10px 8px;
+   border-radius:12px;
+@@ -1080,10 +1092,10 @@ select:focus{
+   cursor:pointer;
+   text-align:center;
+ }
+-.odon-zoom-btn:hover{background: rgba(59,123,255,.18)}
++.odon-zoom-btn:hover{background: color-mix(in srgb, var(--_odon-accent) 18%, transparent)}
+ .odon-zoom-btn.active{
+-  background: rgba(18,185,129,.18);
+-  border-color: rgba(18,185,129,.5);
++  background: color-mix(in srgb, var(--_odon-accent2) 18%, transparent);
++  border-color: color-mix(in srgb, var(--_odon-accent2) 50%, transparent);
+ }
+ .odon-zoom-btn.danger{
+   background: rgba(217,69,69,.08);
+@@ -1117,7 +1129,7 @@ select:focus{
+   cursor:pointer;
+   text-align:start;
+ }
+-.odon-ctx-item:hover{background: rgba(59,123,255,.1)}
++.odon-ctx-item:hover{background: color-mix(in srgb, var(--_odon-accent) 10%, transparent)}
+ .odon-ctx-item.danger{color:#b83a3a}
+ .odon-ctx-item.danger:hover{background: rgba(217,69,69,.12)}
+ .odon-ctx-divider{height:1px;background:var(--_odon-line);margin:2px 0}
+@@ -1127,13 +1139,13 @@ select:focus{
+ .dark .odon-zoom-popover{background: var(--_odon-panel); box-shadow: 0 20px 60px rgba(0,0,0,.5)}
+ .dark .odon-zoom-close{background: rgba(255,255,255,.06)}
+ .dark .odon-zoom-close:hover{background: rgba(248,113,113,.15); color:#f87171}
+-.dark .odon-zoom-btn{background: rgba(96,165,250,.1)}
+-.dark .odon-zoom-btn:hover{background: rgba(96,165,250,.2)}
++.dark .odon-zoom-btn{background: color-mix(in srgb, var(--_odon-accent-dark) 10%, transparent)}
++.dark .odon-zoom-btn:hover{background: color-mix(in srgb, var(--_odon-accent-dark) 20%, transparent)}
+ .dark .odon-zoom-btn.active{background: rgba(52,211,153,.18); border-color: rgba(52,211,153,.4)}
+ .dark .odon-zoom-btn.danger{background: rgba(248,113,113,.1); border-color: rgba(248,113,113,.25); color:#f87171}
+ .dark .odon-ctx-menu{background: var(--_odon-panel); box-shadow: 0 12px 40px rgba(0,0,0,.5)}
+ .dark .odon-ctx-item{background: rgba(255,255,255,.04)}
+-.dark .odon-ctx-item:hover{background: rgba(96,165,250,.12)}
++.dark .odon-ctx-item:hover{background: color-mix(in srgb, var(--_odon-accent-dark) 12%, transparent)}
+ .dark .odon-ctx-item.danger{color:#f87171}
+ 
+ /* Pinch-to-zoom on grid */
+@@ -1188,11 +1200,11 @@ select:focus{
+   text-align:center;
+ }
+ .odon-arch-toggle .odon-arch-btn.active{
+-  background: rgba(59,123,255,.18);
+-  border-color: rgba(59,123,255,.45);
++  background: color-mix(in srgb, var(--_odon-accent) 18%, transparent);
++  border-color: color-mix(in srgb, var(--_odon-accent) 45%, transparent);
+ }
+ .dark .odon-arch-toggle .odon-arch-btn{background: rgba(255,255,255,.06)}
+-.dark .odon-arch-toggle .odon-arch-btn.active{background: rgba(96,165,250,.2); border-color: rgba(96,165,250,.45)}
++.dark .odon-arch-toggle .odon-arch-btn.active{background: color-mix(in srgb, var(--_odon-accent-dark) 20%, transparent); border-color: color-mix(in srgb, var(--_odon-accent-dark) 45%, transparent)}
+ @media (max-width: 600px){
+   .odon-arch-toggle{display:flex}
+   .tooth-grid.odon-arch-upper .lower-row,
+@@ -1207,7 +1219,7 @@ select:focus{
+ .odon-export-pct{font-weight:800; font-size:40px; line-height:1; color:var(--_odon-text)}
+ .odon-export-phase{font-size:12px; color:var(--_odon-muted); margin-top:8px}
+ .odon-tour-backdrop{position:fixed; inset:0; z-index:140; background:rgba(20,28,40,.45)}
+-.odon-tour-highlight{position:fixed; z-index:141; border:3px solid var(--_odon-accent,#3b7bff); border-radius:12px; box-shadow:0 0 0 9999px rgba(20,28,40,.45); pointer-events:none; transition:all .15s ease}
++.odon-tour-highlight{position:fixed; z-index:141; border:3px solid var(--_odon-accent,var(--_odon-accent)); border-radius:12px; box-shadow:0 0 0 9999px rgba(20,28,40,.45); pointer-events:none; transition:all .15s ease}
+ .odon-tour-card{position:fixed; z-index:142; background:var(--_odon-panel); border-radius:16px; box-shadow:0 16px 48px rgba(30,42,58,.25); padding:18px 20px; width:300px}
+ .odon-tour-card-center{top:50%; left:50%; transform:translate(-50%,-50%)}
+ .odon-tour-counter{font-size:11px; color:var(--_odon-muted); margin-bottom:6px}
+@@ -1217,7 +1229,7 @@ select:focus{
+ .odon-tour-btn{border:1px solid var(--_odon-line); background:rgba(0,0,0,.04); color:var(--_odon-text); padding:6px 12px; border-radius:10px; font-weight:600; cursor:pointer}
+ .odon-tour-btn:disabled{opacity:.4; cursor:default}
+ .odon-tour-skip{margin-right:auto; background:transparent}
+-.odon-tour-next{background:rgba(59,123,255,.18); border-color:rgba(59,123,255,.45)}
++.odon-tour-next{background:color-mix(in srgb, var(--_odon-accent) 18%, transparent); border-color:color-mix(in srgb, var(--_odon-accent) 45%, transparent)}
+ .caries-deep path, .caries-deep circle, .caries-deep ellipse { stroke: #b3261e; stroke-width: .5px; }
+ .settings-menu{min-width:200px}
+ .settings-group-label{font-size:11px; color:var(--_odon-muted); font-weight:700; padding:4px 8px 2px}
+@@ -1253,8 +1265,8 @@ select:focus{
+ .tooth-info-table-wrap{margin:0 0 8px; overflow-x:auto}
+ .tooth-info-table{border-collapse:collapse; width:100%; font-size:12px; line-height:1.4; color:var(--_odon-text)}
+ .tooth-info-table th,.tooth-info-table td{border:1px solid var(--_odon-line); padding:3px 6px; text-align:left; vertical-align:top}
+-.tooth-info-table thead th{background:rgba(59,123,255,.12); color:var(--_odon-text); font-weight:700; font-size:11px; white-space:nowrap}
+-.tooth-info-table tbody th{background:rgba(59,123,255,.08); color:var(--_odon-text); font-weight:700; white-space:nowrap}
++.tooth-info-table thead th{background:color-mix(in srgb, var(--_odon-accent) 12%, transparent); color:var(--_odon-text); font-weight:700; font-size:11px; white-space:nowrap}
++.tooth-info-table tbody th{background:color-mix(in srgb, var(--_odon-accent) 8%, transparent); color:var(--_odon-text); font-weight:700; white-space:nowrap}
+ .tooth-info-table tbody tr:nth-child(even) td{background:rgba(127,127,127,.08)}
+ .tooth-cell{white-space:nowrap}
+ .tooth-cell-content{font-weight:700; color:var(--_odon-accent)}
+@@ -1273,14 +1285,14 @@ select:focus{
+   margin-top:10px;
+   padding:8px 10px;
+   border-radius:12px;
+-  background: rgba(59,123,255,.08);
+-  border:1px solid rgba(59,123,255,.35);
++  background: color-mix(in srgb, var(--_odon-accent) 8%, transparent);
++  border:1px solid color-mix(in srgb, var(--_odon-accent) 35%, transparent);
+ }
+ .planned-changes .tooth-info-heading{margin-bottom:4px}
+ .planned-changes-item{margin:4px 0 0; font-size:13px; line-height:1.5}
+ .dark .planned-changes{
+-  background: rgba(96,165,250,.12);
+-  border-color: rgba(96,165,250,.4);
++  background: color-mix(in srgb, var(--_odon-accent-dark) 12%, transparent);
++  border-color: color-mix(in srgb, var(--_odon-accent-dark) 40%, transparent);
+ }
+ 
+ /* ── Settings modal ──────────────────────────── */
+@@ -1321,7 +1333,7 @@ select:focus{
+ }
+ .odon-settings-close:hover{ background: rgba(0,0,0,.08); }
+ .odon-settings-close:focus-visible{
+-  outline: none; box-shadow: 0 0 0 3px rgba(59,123,255,.35);
++  outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--_odon-accent) 35%, transparent);
+ }
+ .odon-settings-body{
+   display: flex; min-height: 0; flex: 1;
+@@ -1342,14 +1354,14 @@ select:focus{
+ }
+ .odon-settings-tab:hover{ background: rgba(0,0,0,.04); color: var(--_odon-text); }
+ .odon-settings-tab.is-active{
+-  background: rgba(59,123,255,.14);
+-  border-color: rgba(59,123,255,.35);
++  background: color-mix(in srgb, var(--_odon-accent) 14%, transparent);
++  border-color: color-mix(in srgb, var(--_odon-accent) 35%, transparent);
+   color: var(--_odon-text);
+ }
+ .odon-settings-tab.is-disabled{ opacity: .45; cursor: not-allowed; }
+ .odon-settings-tab.is-disabled:hover{ background: transparent; color: var(--_odon-muted); }
+ .odon-settings-tab:focus-visible{
+-  outline: none; box-shadow: 0 0 0 3px rgba(59,123,255,.30);
++  outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--_odon-accent) 30%, transparent);
+ }
+ .odon-settings-panel{
+   flex: 1; min-width: 0;
+@@ -1378,7 +1390,7 @@ select:focus{
+ .odon-settings-badge{
+   display: inline-block; margin-inline-start: 6px;
+   padding: 1px 7px; border-radius: 999px;
+-  background: rgba(59,123,255,.14); color: var(--_odon-accent, #3b7bff);
++  background: color-mix(in srgb, var(--_odon-accent) 14%, transparent); color: var(--_odon-accent, var(--_odon-accent));
+   font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em;
+   vertical-align: middle;
+ }
+@@ -1390,13 +1402,13 @@ select:focus{
+   font-size: 13px; font-family: inherit;
+ }
+ .odon-settings-select:focus-visible{
+-  outline: none; box-shadow: 0 0 0 3px rgba(59,123,255,.30); border-color: rgba(59,123,255,.5);
++  outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--_odon-accent) 30%, transparent); border-color: color-mix(in srgb, var(--_odon-accent) 50%, transparent);
+ }
+ .odon-settings-select:disabled{ opacity: .5; cursor: not-allowed; }
+ /* Round 2 (Stage 7): intro note at the top of the Export Settings tab. */
+ .odon-settings-note{
+   margin: 0 0 10px; padding: 8px 12px; border-radius: 10px;
+-  background: rgba(59,123,255,.10); color: var(--_odon-text);
++  background: color-mix(in srgb, var(--_odon-accent) 10%, transparent); color: var(--_odon-text);
+   font-size: 12px; line-height: 1.45;
+ }
+ .odon-settings-input{
+@@ -1409,7 +1421,7 @@ select:focus{
+ .odon-settings-input[type="color"]{ min-width: 52px; width: 52px; padding: 2px; height: 32px; cursor: pointer; }
+ .odon-settings-input:disabled{ opacity: .5; cursor: not-allowed; }
+ .odon-settings-input:focus-visible{
+-  outline: none; box-shadow: 0 0 0 3px rgba(59,123,255,.30); border-color: rgba(59,123,255,.5);
++  outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--_odon-accent) 30%, transparent); border-color: color-mix(in srgb, var(--_odon-accent) 50%, transparent);
+ }
+ .odon-settings-textarea{
+   min-width: 240px; max-width: 100%; width: 240px; resize: vertical;
+@@ -1420,7 +1432,7 @@ select:focus{
+ }
+ .odon-settings-textarea:disabled{ opacity: .5; cursor: not-allowed; }
+ .odon-settings-textarea:focus-visible{
+-  outline: none; box-shadow: 0 0 0 3px rgba(59,123,255,.30); border-color: rgba(59,123,255,.5);
++  outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--_odon-accent) 30%, transparent); border-color: color-mix(in srgb, var(--_odon-accent) 50%, transparent);
+ }
+ .odon-settings-switch{
+   position: relative; display: inline-flex; align-items: center;
+@@ -1441,13 +1453,13 @@ select:focus{
+   transition: transform .15s ease;
+ }
+ .odon-settings-switch input:checked + .odon-settings-switch-track{
+-  background: var(--_odon-accent, #3b7bff);
++  background: var(--_odon-accent, var(--_odon-accent));
+ }
+ .odon-settings-switch input:checked + .odon-settings-switch-track::after{
+   transform: translateX(18px);
+ }
+ .odon-settings-switch input:focus-visible + .odon-settings-switch-track{
+-  box-shadow: 0 0 0 3px rgba(59,123,255,.30);
++  box-shadow: 0 0 0 3px color-mix(in srgb, var(--_odon-accent) 30%, transparent);
+ }
+ .dark .odon-settings-close{ background: rgba(255,255,255,.06); }
+ .dark .odon-settings-close:hover{ background: rgba(255,255,255,.12); }
+@@ -1498,14 +1510,14 @@ select:focus{
+   cursor: pointer;
+ }
+ .odon-confirm-btn:focus-visible{
+-  outline: none; box-shadow: 0 0 0 3px rgba(59,123,255,.35);
++  outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--_odon-accent) 35%, transparent);
+ }
+ .odon-confirm-cancel{
+   background: rgba(0,0,0,.04); color: var(--_odon-text);
+ }
+ .odon-confirm-cancel:hover{ background: rgba(0,0,0,.08); }
+ .odon-confirm-accept{
+-  background: var(--brand, #3b7bff); color: #fff; border-color: transparent;
++  background: var(--brand, var(--_odon-accent)); color: #fff; border-color: transparent;
+ }
+ .odon-confirm-accept:hover{ filter: brightness(1.05); }
+ .dark .odon-confirm-cancel{ background: rgba(255,255,255,.06); }
+@@ -1549,7 +1561,7 @@ select:focus{
+ }
+ .odon-credits-libs li{ display: inline-flex; }
+ .odon-credits-link{
+-  color: var(--brand, #3b7bff); font-weight: 600; text-decoration: none;
++  color: var(--brand, var(--_odon-accent)); font-weight: 600; text-decoration: none;
+ }
+ .odon-credits-link:hover{ text-decoration: underline; }
+ .odon-credits-welcome{
+@@ -1567,7 +1579,7 @@ select:focus{
+ .odon-credits-star svg{ opacity: .75; }
+ .odon-credits-star:hover{ background: rgba(0,0,0,.05); border-color: var(--_odon-text); }
+ .dark .odon-credits-star:hover{ background: rgba(255,255,255,.08); }
+-.odon-credits-star:focus-visible{ outline: none; box-shadow: 0 0 0 3px rgba(59,123,255,.35); }
++.odon-credits-star:focus-visible{ outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--_odon-accent) 35%, transparent); }
+ 
+ /* P2 Task 1: perio-chart overlay shell. Full-screen, layered ABOVE the
+    odontogram (which it never unmounts) — higher z-index than every other
+@@ -1610,7 +1622,7 @@ select:focus{
+ }
+ .perio-overlay-close:hover{ background: rgba(0,0,0,.08); }
+ .perio-overlay-close:focus-visible{
+-  outline: none; box-shadow: 0 0 0 3px rgba(59,123,255,.35);
++  outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--_odon-accent) 35%, transparent);
+ }
+ .perio-overlay-body{
+   flex: 1; min-height: 240px;
+@@ -1698,7 +1710,7 @@ select:focus{
+ .case-meta-panel-title:hover{ background: rgba(0,0,0,.03); }
+ .dark .case-meta-panel-title:hover{ background: rgba(255,255,255,.04); }
+ .case-meta-panel-title:focus-visible{
+-  outline: none; box-shadow: inset 0 0 0 3px rgba(59,123,255,.30);
++  outline: none; box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--_odon-accent) 30%, transparent);
+ }
+ .case-meta-panel-body{
+   padding: 2px 12px 14px;
+@@ -1726,7 +1738,7 @@ select:focus{
+ }
+ .case-meta-input:focus-visible,
+ .case-meta-select:focus-visible{
+-  outline: none; box-shadow: 0 0 0 3px rgba(59,123,255,.30); border-color: rgba(59,123,255,.5);
++  outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--_odon-accent) 30%, transparent); border-color: color-mix(in srgb, var(--_odon-accent) 50%, transparent);
+ }
+ .case-meta-input-narrow{ width: 72px; }
+ .dark .case-meta-input,
+@@ -1886,7 +1898,7 @@ select:focus{
+ .perio-overlay-switch-btn.is-active{
+   background: var(--_odon-accent, #3b82f6);
+   border-color: var(--_odon-accent, #3b82f6);
+-  color: #fff;
++  color: var(--_odon-accent-fg);
+ }
+ .perio-overlay-switch-btn:focus-visible{ outline: 2px solid var(--_odon-accent, #3b82f6); outline-offset: 1px; }
+ .perio-overlay-readout{
+@@ -1896,8 +1908,10 @@ select:focus{
+   color: var(--_odon-text);
+   font-variant-numeric: tabular-nums;
+ }
+-.dark .perio-overlay-switch-btn{ background: rgba(255,255,255,.04); }
+-.dark .perio-overlay-switch-btn.is-active{ color: #0b1220; }
++/* :not(.is-active): this rule comes after .is-active with the same specificity
++   and used to wipe the active background in dark mode. */
++.dark .perio-overlay-switch-btn:not(.is-active){ background: rgba(255,255,255,.04); }
++.dark .perio-overlay-switch-btn.is-active{ background: var(--_odon-accent-dark); border-color: var(--_odon-accent-dark); color: var(--odon-accent-fg, #0b1220); }
+ 
+ /* Overlay marks drawn over the arch, in the oriented row groups. */
+ .perio-overlay-mark{ vector-effect: non-scaling-stroke; }
+@@ -1983,14 +1997,14 @@ select:focus{
+   cursor: pointer;
+ }
+ .perio-info-btn:hover{
+-  border-color: var(--_odon-accent, #3b7bff);
+-  color: var(--_odon-accent, #3b7bff);
++  border-color: var(--_odon-accent, var(--_odon-accent));
++  color: var(--_odon-accent, var(--_odon-accent));
+ }
+ .perio-info-btn:focus-visible{
+   outline: none;
+-  border-color: var(--_odon-accent, #3b7bff);
+-  color: var(--_odon-accent, #3b7bff);
+-  box-shadow: 0 0 0 2px rgba(59,123,255,.35);
++  border-color: var(--_odon-accent, var(--_odon-accent));
++  color: var(--_odon-accent, var(--_odon-accent));
++  box-shadow: 0 0 0 2px color-mix(in srgb, var(--_odon-accent) 35%, transparent);
+ }
+ /* Layered above the perio-overlay dialog (z-index 160) so it is never hidden
+    behind the perio chart chrome it annotates, but BELOW the DS-1 confirm
+@@ -2147,7 +2161,7 @@ select:focus{
+ }
+ .perio-fullgrid-furc[data-grade]:not([data-grade="0"]){
+   border-color: var(--_odon-accent, #c0392b);
+-  background: var(--_odon-accent, #c0392b); color: #fff;
++  background: var(--_odon-accent, #c0392b); color: var(--_odon-accent-fg);
+ }
+ .perio-fullgrid-furc:disabled{ opacity: .45; cursor: not-allowed; }
+ 
+@@ -2256,7 +2270,7 @@ select:focus{
+ .perio-fullgrid-gt[data-value]:not([data-value="unknown"]),
+ .perio-fullgrid-miller[data-value]:not([data-value="none"]){
+   border-color: var(--_odon-accent, #c0392b);
+-  background: var(--_odon-accent, #c0392b); color: #fff;
++  background: var(--_odon-accent, #c0392b); color: var(--_odon-accent-fg);
+ }
+ .perio-fullgrid-cej:disabled,
+ .perio-fullgrid-rootconcavity:disabled,
+-- 
+2.43.0
+

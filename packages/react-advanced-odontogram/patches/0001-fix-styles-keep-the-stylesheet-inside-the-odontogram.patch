@@ -1,0 +1,2875 @@
+From 2d5a929567a26f277541d965422034aaf6266afa Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 6 Oct 2026 10:00:30 +0000
+Subject: [PATCH 1/5] fix(styles): keep the stylesheet inside the odontogram
+
+The shipped stylesheet styled the host page: html/body/* rules, a global
+select style, an !important .hidden class and eight short theme variables on
+:root (--bg, --card, --accent, ...) that host design systems also use.
+
+- page-level rules move to the demo (src/demo.css)
+- the short theme variables become private (--_odon-*); --odon-* is unchanged
+- the hide utility becomes .odon-hidden (all toggle sites and tests)
+- tools/postcss-scope.js scopes every selector to .odontogram-root and the
+  engine's odon-* popups with a zero-specificity :where(); the perio info
+  popover gains an odon-popover class
+- dist/style.layer.css: the same rules in @layer odontogram for hosts that
+  use cascade layers
+
+Tests: stylesheet-scope.test.ts; existing card/UI tests updated for
+.odon-hidden.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01LCyGZy1hJThR67oFx5pzCS
+---
+ CHANGELOG.md                                  |  25 +
+ lang/README-en.md                             |   2 +-
+ package-lock.json                             |   1 +
+ package.json                                  |   4 +-
+ postcss.config.js                             |  16 +-
+ src/App.tsx                                   |   2 +-
+ src/PerioChart.tsx                            |   4 +-
+ src/__tests__/App.test.tsx                    |   2 +-
+ src/__tests__/caries-card.test.tsx            |   6 +-
+ src/__tests__/dx-card.test.tsx                |   4 +-
+ src/__tests__/fillings-card.test.tsx          |  22 +-
+ src/__tests__/orthodontics-card.test.tsx      |   4 +-
+ src/__tests__/parity/shell-dom-golden.html    |   2 +-
+ src/__tests__/r2a-toggle-ui.test.ts           |   8 +-
+ src/__tests__/r2c-proposed-legend.test.ts     |   2 +-
+ src/__tests__/root-periodontium-card.test.tsx |  12 +-
+ src/__tests__/sp13-tooth-details.test.ts      |   8 +-
+ src/__tests__/sp13-wear-layout.test.ts        |   8 +-
+ .../sp15-inflammation-toggle.test.ts          |  22 +-
+ src/__tests__/sp7-card-merge.test.ts          |   6 +-
+ src/__tests__/sp8-peri-implant-ui.test.ts     |  14 +-
+ src/__tests__/stylesheet-scope.test.ts        |  63 +++
+ src/__tests__/tooth-details-card.test.tsx     |  24 +-
+ .../tooth-details-selection.test.tsx          |   2 +-
+ src/demo.css                                  |  13 +
+ src/index.css                                 | 522 +++++++++---------
+ src/main.tsx                                  |   1 +
+ src/odontogram.ts                             |  38 +-
+ src/surfaces/OdontogramChartSurface.tsx       |   2 +-
+ src/surfaces/ToothControlsSurface.tsx         |   4 +-
+ src/surfaces/cards/CariesCard.tsx             |   6 +-
+ src/surfaces/cards/DiagnosesCard.tsx          |   2 +-
+ src/surfaces/cards/FillingsCard.tsx           |  14 +-
+ src/surfaces/cards/OrthodonticsCard.tsx       |   2 +-
+ src/surfaces/cards/RootPeriodontiumCard.tsx   |  22 +-
+ src/surfaces/cards/ToothDetailsCard.tsx       |  40 +-
+ tools/postcss-scope.js                        |  58 ++
+ vite.lib.config.ts                            |  23 +-
+ 38 files changed, 595 insertions(+), 415 deletions(-)
+ create mode 100644 src/__tests__/stylesheet-scope.test.ts
+ create mode 100644 src/demo.css
+ create mode 100644 tools/postcss-scope.js
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index e7013fa..4f90cf0 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -65,6 +65,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
+   The measured chunk is now ~3.6 MB (679 kB gzipped), still fetched only when
+   the measured profile is selected.
+ 
++### Changed
++
++- **The stylesheet no longer styles the host page.** `dist/style.css` used to
++  ship `html`/`body`/`*` rules, a global `select` style, an `!important`
++  `.hidden` class and eight short theme variables on `:root` (`--bg`, `--card`,
++  `--muted`, `--accent`, `--line`, `--text`, `--panel`, `--accent2`) — names a
++  host design system is likely to use for something else. Now:
++  - the page-level rules live in the demo only (`src/demo.css`);
++  - the short variables are private (`--_odon-bg`, `--_odon-card`, …); the
++    public `--odon-*` theme variables are unchanged;
++  - the hide utility is `.odon-hidden` (every toggle site and test updated);
++  - `tools/postcss-scope.js` appends a zero-specificity
++    `:where(.odontogram-root, .odontogram-root *, [class*="odon-"], [class*="odon-"] *)`
++    to every selector at build time, so `.btn`, `.card`, `.row`, `select`… only
++    match inside the component or the engine's own `odon-*` popups (the perio
++    info popover gained an `odon-popover` class for this). The library's own
++    cascade is unchanged.
++
++### Added
++
++- **`react-advanced-odontogram/style.layer.css`** — the same stylesheet inside
++  `@layer odontogram`, for hosts that order their CSS with cascade layers
++  (Tailwind CSS 4 and others): unlayered CSS would otherwise beat every layered
++  utility of the host.
++
+ ## [2.6.0] - 2026-09-14
+ 
+ ### Changed
+diff --git a/lang/README-en.md b/lang/README-en.md
+index 3636d24..b0cbb7c 100644
+--- a/lang/README-en.md
++++ b/lang/README-en.md
+@@ -198,7 +198,7 @@ Or load it with a client-only dynamic import: `dynamic(() => import("./Odontogra
+ 
+ #### Important notes & current limitations
+ - **ESM-only** — the package publishes a single ES module (`dist/odontogram.js`) plus a type-declaration entry (`dist/index.d.ts`). It targets bundler module resolution; there is no CommonJS build.
+-- **The stylesheet is separate** — you **must** import `react-advanced-odontogram/style.css` once; it is not injected automatically. Styling is global CSS scoped under `.odontogram-root` and driven by `--odon-*` CSS variables.
++- **The stylesheet is separate** — you **must** import `react-advanced-odontogram/style.css` once; it is not injected automatically. Every rule is confined to `.odontogram-root` and to the engine's own `odon-*` popups (no `html`/`body` rules, no global utility classes), and it is themed through the public `--odon-*` CSS variables. Hosts that use cascade layers (Tailwind CSS 4, for example) import `react-advanced-odontogram/style.layer.css` instead: the same rules inside `@layer odontogram`, so the host decides where the odontogram sits in its layer order.
+ - **SSR / client-only** — the component reads the DOM on mount (`document`), so it must run in the browser. In SSR frameworks, render it in a Client Component (`"use client"`) or via a client-only dynamic import.
+ - **Assets are self-contained** — the tooth and icon SVGs are inlined into the JavaScript bundle at build time; there is **no runtime asset fetch** to configure and nothing extra to copy to your public folder.
+ - **One instance per page** — engine state is currently a module-level singleton, so rendering two `<OdontogramShell>` instances on the same page would make them share a single chart's state. Multi-instance support is planned for a future release.
+diff --git a/package-lock.json b/package-lock.json
+index 7e63616..3a03d41 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -33,6 +33,7 @@
+         "jiti": "^2.6.1",
+         "jsdom": "^28.1.0",
+         "postcss": "^8.4.45",
++        "postcss-selector-parser": "^6.1.2",
+         "react": "^18.3.1",
+         "react-dom": "^18.3.1",
+         "tailwindcss": "^3.4.10",
+diff --git a/package.json b/package.json
+index 6f6f05f..d9136ca 100644
+--- a/package.json
++++ b/package.json
+@@ -40,7 +40,8 @@
+       "types": "./dist/index.d.ts",
+       "import": "./dist/odontogram.js"
+     },
+-    "./style.css": "./dist/style.css"
++    "./style.css": "./dist/style.css",
++    "./style.layer.css": "./dist/style.layer.css"
+   },
+   "engines": {
+     "node": ">=18"
+@@ -89,6 +90,7 @@
+     "jiti": "^2.6.1",
+     "jsdom": "^28.1.0",
+     "postcss": "^8.4.45",
++    "postcss-selector-parser": "^6.1.2",
+     "react": "^18.3.1",
+     "react-dom": "^18.3.1",
+     "tailwindcss": "^3.4.10",
+diff --git a/postcss.config.js b/postcss.config.js
+index 2e7af2b..ee3a9a7 100644
+--- a/postcss.config.js
++++ b/postcss.config.js
+@@ -1,6 +1,12 @@
++import tailwindcss from "tailwindcss";
++import autoprefixer from "autoprefixer";
++import odontogramScope from "./tools/postcss-scope.js";
++
+ export default {
+-  plugins: {
+-    tailwindcss: {},
+-    autoprefixer: {},
+-  },
+-}
++  plugins: [
++    // Keeps src/index.css from styling anything outside the odontogram.
++    odontogramScope(),
++    tailwindcss(),
++    autoprefixer(),
++  ],
++};
+diff --git a/src/App.tsx b/src/App.tsx
+index c0d6929..8c5db82 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -196,7 +196,7 @@ function ShellLayout(){
+       <main className="layout">
+         {/* Hide the perio entry point (view toggle / open button) entirely when
+             the Periodontal chart is turned off in Settings. */}
+-        <div className={"perio-launch-bar" + (perioChartAvailable ? "" : " hidden")}>
++        <div className={"perio-launch-bar" + (perioChartAvailable ? "" : " odon-hidden")}>
+           {viewMode === "toggle" ? (
+             <div id="appViewToggle" className="chart-mode-toggle" role="tablist">
+               <button
+diff --git a/src/PerioChart.tsx b/src/PerioChart.tsx
+index 8cec42e..e4bc2ea 100644
+--- a/src/PerioChart.tsx
++++ b/src/PerioChart.tsx
+@@ -637,7 +637,9 @@ function toggleInfoPopover(infoKey: string, anchor: HTMLButtonElement): void {
+   hideInfoPopover();
+   if (reopening) return;
+ 
+-  const popover = mkEl("div", "perio-info-popover");
++  // `odon-popover` puts this body-level popup inside the stylesheet's scope
++  // (tools/postcss-scope.js) like every other `odon-*` popup.
++  const popover = mkEl("div", "perio-info-popover odon-popover");
+   popover.id = "perioInfoPopover";
+   popover.setAttribute("role", "dialog");
+   popover.setAttribute("aria-modal", "false");
+diff --git a/src/__tests__/App.test.tsx b/src/__tests__/App.test.tsx
+index f938471..3463ee5 100644
+--- a/src/__tests__/App.test.tsx
++++ b/src/__tests__/App.test.tsx
+@@ -236,7 +236,7 @@ describe('App.tsx', () => {
+       expect(row).toBeInTheDocument();
+       expect(checkbox).toBeInTheDocument();
+       expect(checkbox).toHaveAttribute('type', 'checkbox');
+-      expect(row).toHaveClass('hidden');
++      expect(row).toHaveClass('odon-hidden');
+     });
+ 
+     // SP5 Task 5: the per-tooth root-caries picker lives in the caries card.
+diff --git a/src/__tests__/caries-card.test.tsx b/src/__tests__/caries-card.test.tsx
+index 0283d11..beee5f7 100644
+--- a/src/__tests__/caries-card.test.tsx
++++ b/src/__tests__/caries-card.test.tsx
+@@ -114,11 +114,11 @@ describe("PR 3c: <CariesCard/> renders declaratively", () => {
+     __setToothStateForTest(11, { toothSelection: "tooth-base" });
+     __setActiveToothForTest(11);
+     renderControls();
+-    expect(document.getElementById("cariesSection")?.classList.contains("hidden")).toBe(false);
++    expect(document.getElementById("cariesSection")?.classList.contains("odon-hidden")).toBe(false);
+ 
+     // Switching to Plan mode hides the (status-only diagnosis) caries section.
+     act(() => { setChartMode("plan"); });
+-    expect(document.getElementById("cariesSection")?.classList.contains("hidden")).toBe(true);
++    expect(document.getElementById("cariesSection")?.classList.contains("odon-hidden")).toBe(true);
+     cleanup();
+ 
+     // A radix substrate hides the caries section.
+@@ -128,7 +128,7 @@ describe("PR 3c: <CariesCard/> renders declaratively", () => {
+     __setToothStateForTest(11, { toothSelection: "tooth-base", toothSubstrate: "radix" });
+     __setActiveToothForTest(11);
+     renderControls();
+-    expect(document.getElementById("cariesSection")?.classList.contains("hidden")).toBe(true);
++    expect(document.getElementById("cariesSection")?.classList.contains("odon-hidden")).toBe(true);
+   });
+ 
+   it("clicking a caried surface's .surf-depth indicator opens the severity popup", () => {
+diff --git a/src/__tests__/dx-card.test.tsx b/src/__tests__/dx-card.test.tsx
+index ac29d38..6f1b67a 100644
+--- a/src/__tests__/dx-card.test.tsx
++++ b/src/__tests__/dx-card.test.tsx
+@@ -203,12 +203,12 @@ describe("DX-2 Task 4: <DiagnosesCard/> renders declaratively", () => {
+   it("hides #diagnosesSection when dx.visible is false", () => {
+     getActiveDiagnosesMock.mockReturnValue({ visible: false, rows: [], addableKeys: [] });
+     renderControls();
+-    expect(document.getElementById("diagnosesSection")?.classList.contains("hidden")).toBe(true);
++    expect(document.getElementById("diagnosesSection")?.classList.contains("odon-hidden")).toBe(true);
+   });
+ 
+   it("shows #diagnosesSection when dx.visible is true", () => {
+     renderControls();
+-    expect(document.getElementById("diagnosesSection")?.classList.contains("hidden")).toBe(false);
++    expect(document.getElementById("diagnosesSection")?.classList.contains("odon-hidden")).toBe(false);
+   });
+ });
+ 
+diff --git a/src/__tests__/fillings-card.test.tsx b/src/__tests__/fillings-card.test.tsx
+index bb2c67d..5bd5de9 100644
+--- a/src/__tests__/fillings-card.test.tsx
++++ b/src/__tests__/fillings-card.test.tsx
+@@ -129,13 +129,13 @@ describe("PR 3d: <FillingsCard/> renders declaratively", () => {
+     renderControls();
+     fireEvent.change(document.getElementById("fillingSelect") as HTMLSelectElement, { target: { value: "composite" } });
+     // Complex (default): grid visible, simple row hidden.
+-    expect(document.getElementById("fillingSurfaceChecks")?.classList.contains("hidden")).toBe(false);
+-    expect(document.getElementById("fillingSimpleRow")?.classList.contains("hidden")).toBe(true);
++    expect(document.getElementById("fillingSurfaceChecks")?.classList.contains("odon-hidden")).toBe(false);
++    expect(document.getElementById("fillingSimpleRow")?.classList.contains("odon-hidden")).toBe(true);
+ 
+     // Switch to simple: grid hidden, simple toggle row shown.
+     act(() => { setFillingComplexity("simple"); });
+-    expect(document.getElementById("fillingSurfaceChecks")?.classList.contains("hidden")).toBe(true);
+-    expect(document.getElementById("fillingSimpleRow")?.classList.contains("hidden")).toBe(false);
++    expect(document.getElementById("fillingSurfaceChecks")?.classList.contains("odon-hidden")).toBe(true);
++    expect(document.getElementById("fillingSimpleRow")?.classList.contains("odon-hidden")).toBe(false);
+ 
+     // The simple toggle fills ALL surfaces.
+     fireEvent.click(document.getElementById("fillingSimpleToggle") as HTMLInputElement);
+@@ -146,7 +146,7 @@ describe("PR 3d: <FillingsCard/> renders declaratively", () => {
+     // Tooth 14 (upper first premolar) is fissure-eligible.
+     __setSelectionForTest([14]);
+     renderControls();
+-    expect(document.getElementById("fissureSealingRow")?.classList.contains("hidden")).toBe(false);
++    expect(document.getElementById("fissureSealingRow")?.classList.contains("odon-hidden")).toBe(false);
+     fireEvent.click(document.getElementById("fissureSealing") as HTMLInputElement);
+     expect(getStatusChart().teeth[14].fissureSealing).toBe(true);
+     cleanup();
+@@ -157,7 +157,7 @@ describe("PR 3d: <FillingsCard/> renders declaratively", () => {
+     setNumberingSystem("FDI");
+     __setSelectionForTest([11]);
+     renderControls();
+-    expect(document.getElementById("fissureSealingRow")?.classList.contains("hidden")).toBe(true);
++    expect(document.getElementById("fissureSealingRow")?.classList.contains("odon-hidden")).toBe(true);
+   });
+ 
+   it("hides #fillingSection on an implant tooth and on a crowned tooth", () => {
+@@ -165,7 +165,7 @@ describe("PR 3d: <FillingsCard/> renders declaratively", () => {
+     __setToothStateForTest(11, { toothSelection: "tooth-base" });
+     __setActiveToothForTest(11);
+     renderControls();
+-    expect(document.getElementById("fillingSection")?.classList.contains("hidden")).toBe(false);
++    expect(document.getElementById("fillingSection")?.classList.contains("odon-hidden")).toBe(false);
+     cleanup();
+ 
+     // An implant tooth hides the fillings section.
+@@ -175,7 +175,7 @@ describe("PR 3d: <FillingsCard/> renders declaratively", () => {
+     __setToothStateForTest(11, { toothSelection: "implant" });
+     __setActiveToothForTest(11);
+     renderControls();
+-    expect(document.getElementById("fillingSection")?.classList.contains("hidden")).toBe(true);
++    expect(document.getElementById("fillingSection")?.classList.contains("odon-hidden")).toBe(true);
+     cleanup();
+ 
+     // A crowned present tooth hides the fillings section.
+@@ -185,14 +185,14 @@ describe("PR 3d: <FillingsCard/> renders declaratively", () => {
+     __setToothStateForTest(11, { toothSelection: "tooth-base", restorationType: "crown", restorationMaterial: "zircon" });
+     __setActiveToothForTest(11);
+     renderControls();
+-    expect(document.getElementById("fillingSection")?.classList.contains("hidden")).toBe(true);
++    expect(document.getElementById("fillingSection")?.classList.contains("odon-hidden")).toBe(true);
+   });
+ 
+   it("the subcaries summary line reflects a recurrent-caries surface", () => {
+     __setSelectionForTest([11]);
+     renderControls();
+     const summary = document.getElementById("fillingSubcariesSummary") as HTMLElement;
+-    expect(summary.classList.contains("hidden")).toBe(true);
++    expect(summary.classList.contains("odon-hidden")).toBe(true);
+ 
+     // Fill a surface, then add caries on the same surface → recurrent caries.
+     fireEvent.change(document.getElementById("fillingSelect") as HTMLSelectElement, { target: { value: "composite" } });
+@@ -210,7 +210,7 @@ describe("PR 3d: <FillingsCard/> renders declaratively", () => {
+     cleanup();
+     renderControls();
+     const summary2 = document.getElementById("fillingSubcariesSummary") as HTMLElement;
+-    expect(summary2.classList.contains("hidden")).toBe(false);
++    expect(summary2.classList.contains("odon-hidden")).toBe(false);
+     expect(summary2.textContent).toContain("11");
+   });
+ });
+diff --git a/src/__tests__/orthodontics-card.test.tsx b/src/__tests__/orthodontics-card.test.tsx
+index f2cd0f6..647962e 100644
+--- a/src/__tests__/orthodontics-card.test.tsx
++++ b/src/__tests__/orthodontics-card.test.tsx
+@@ -89,7 +89,7 @@ describe("PR 3a: <OrthodonticsCard/> renders declaratively", () => {
+     __setActiveToothForTest(11);
+     renderControls();
+     expect(document.getElementById("orthoCard")).toBeTruthy();
+-    expect(document.getElementById("orthoCard")?.classList.contains("hidden")).toBe(false);
++    expect(document.getElementById("orthoCard")?.classList.contains("odon-hidden")).toBe(false);
+     cleanup();
+ 
+     // An implant fails `orthoAllowed` → card present in the DOM but class-hidden.
+@@ -99,6 +99,6 @@ describe("PR 3a: <OrthodonticsCard/> renders declaratively", () => {
+     __setActiveToothForTest(11);
+     renderControls();
+     expect(document.getElementById("orthoCard")).toBeTruthy();
+-    expect(document.getElementById("orthoCard")?.classList.contains("hidden")).toBe(true);
++    expect(document.getElementById("orthoCard")?.classList.contains("odon-hidden")).toBe(true);
+   });
+ });
+diff --git a/src/__tests__/parity/shell-dom-golden.html b/src/__tests__/parity/shell-dom-golden.html
+index 1acb503..285d6b2 100644
+--- a/src/__tests__/parity/shell-dom-golden.html
++++ b/src/__tests__/parity/shell-dom-golden.html
+@@ -1 +1 @@
+-<div class="odontogram-root" dir="ltr" lang="en"><header class="topbar"><div class="brand"><img class="brand-logo" src="data:<inlined-image>" alt="" aria-hidden="true"><div><div class="title">React Advanced Odontogram</div><div class="subtitle">In English. Using FDI – ISO 3950 numbering. In light mode.</div></div></div><div class="topbar-actions"><button class="btn-theme" title="Intro" aria-label="Intro"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M10 8.5v7l6-3.5-6-3.5z"></path></svg></button><div id="languageMenu" class="topbar-group dropdown"><button class="btn-theme" aria-haspopup="menu" aria-expanded="false" title="Language" aria-label="Language"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"></path></svg></button></div><button class="btn-theme" title="Dark mode" aria-label="Dark mode"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"></path></svg></button><div class="topbar-group"><button id="btnSettingsMenu" class="btn-theme" aria-haspopup="dialog" aria-expanded="false" title="Settings" aria-label="Settings"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg></button></div><button id="btnStatusExport" hidden="" aria-hidden="true" tabindex="-1">Export status</button><button id="btnStatusFhirExport" hidden="" aria-hidden="true" tabindex="-1">FHIR export</button><button id="btnStatusPngExport" hidden="" aria-hidden="true" tabindex="-1">PNG export</button><button id="btnStatusJpgExport" hidden="" aria-hidden="true" tabindex="-1">JPG export</button><button id="btnStatusSvgExport" hidden="" aria-hidden="true" tabindex="-1">SVG image</button><button id="btnPerioSvgExport" hidden="" aria-hidden="true" tabindex="-1">Perio SVG</button><button id="btnPerioPngExport" hidden="" aria-hidden="true" tabindex="-1">Perio PNG</button><button id="btnPerioJpgExport" hidden="" aria-hidden="true" tabindex="-1">Perio JPG</button><div class="topbar-group dropdown"><button id="btnExportMenu" class="btn-theme" aria-haspopup="menu" aria-expanded="false" title="Export" aria-label="Export"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"></path></svg></button></div><button id="btnStatusImport" hidden="" aria-hidden="true" tabindex="-1">Import status</button><div class="topbar-group dropdown"><button id="btnImportMenu" class="btn-theme" aria-haspopup="menu" aria-expanded="false" title="Import" aria-label="Import"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 8l5-5 5 5M12 3v12"></path></svg></button></div><input id="statusImportInput" type="file" accept="application/json" hidden=""><div class="topbar-group"><button id="btnCreditsMenu" class="btn-theme" aria-haspopup="dialog" title="About and credits" aria-label="About and credits"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4M12 8h.01"></path></svg></button></div><a id="btnGithubLink" class="btn-theme" href="https://github.com/ZoliQua/React-Advanced-Odontogram" target="_blank" rel="noopener noreferrer" title="View on GitHub" aria-label="View on GitHub"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5A11.5 11.5 0 0 0 .5 12a11.5 11.5 0 0 0 7.86 10.92c.575.106.785-.25.785-.556 0-.274-.01-1-.016-1.965-3.198.695-3.874-1.541-3.874-1.541-.523-1.33-1.278-1.684-1.278-1.684-1.045-.714.08-.7.08-.7 1.155.082 1.763 1.186 1.763 1.186 1.027 1.76 2.695 1.252 3.352.957.104-.744.402-1.252.732-1.54-2.553-.29-5.238-1.277-5.238-5.686 0-1.256.448-2.283 1.184-3.088-.12-.29-.513-1.46.112-3.045 0 0 .966-.31 3.166 1.18a11.02 11.02 0 0 1 2.88-.388c.977.004 1.96.132 2.88.388 2.198-1.49 3.163-1.18 3.163-1.18.626 1.585.233 2.755.114 3.045.737.805 1.183 1.832 1.183 3.088 0 4.42-2.69 5.393-5.25 5.677.413.357.78 1.06.78 2.137 0 1.543-.014 2.787-.014 3.166 0 .309.206.669.79.555A11.5 11.5 0 0 0 23.5 12 11.5 11.5 0 0 0 12 .5z"></path></svg></a></div></header><main class="layout"><div class="perio-launch-bar"><div id="appViewToggle" class="chart-mode-toggle" role="tablist"><button id="appViewOdontogram" type="button" class="chart-mode-btn is-active" role="tab" aria-selected="true">Odontogram</button><button id="appViewDentalChart" type="button" class="chart-mode-btn" role="tab" aria-selected="false">Periodontal Status</button></div><button type="button" id="openCaseDiagnosesBtn" class="btn btn-ghost" title="Case / regional diagnoses" aria-label="Case / regional diagnoses">Diagnoses</button></div><div class="chart-column"><section class="chart"><div class="chart-header"><div><div class="chart-title">Dental chart</div><div class="chart-hint">Click a tooth. For multi-select, use CMD/CTRL + click.</div></div><div id="chartModeToggle" class="chart-mode-toggle" role="tablist"><button id="chartModeStatus" type="button" class="chart-mode-btn is-active" role="tab" aria-selected="true">Status</button><button id="chartModePlan" type="button" class="chart-mode-btn" role="tab" aria-selected="false">Plan</button><span id="chartModePlanBadge" class="plan-badge hidden">PLAN</span></div><div id="proposedLegend" class="proposed-legend"><span class="proposed-legend-swatch" aria-hidden="true"></span>dashed = proposed</div><div class="chart-actions"><button id="btnOcclView" class="btn btn-toggle btn-icon" aria-pressed="true" title="Occlusal view visibility" aria-label="Occlusal view visibility" data-icon-src="<inlined-svg>" data-xline="1"></button><button id="btnWisdomVisible" class="btn btn-toggle btn-icon" aria-pressed="true" title="Wisdom teeth visibility" aria-label="Wisdom teeth visibility" data-icon-src="<inlined-svg>" data-xline="1"></button><button id="btnBoneVisible" class="btn btn-toggle btn-icon" aria-pressed="true" title="Bone visibility" aria-label="Bone visibility" data-icon-src="<inlined-svg>" data-xline="1"></button><button id="btnPulpVisible" class="btn btn-toggle btn-icon" aria-pressed="true" title="Pulp visibility" aria-label="Pulp visibility" data-icon-src="<inlined-svg>" data-xline="1"></button><button id="btnSelectNoneChart" class="btn btn-ghost btn-icon" title="Clear selection" aria-label="Clear selection"><img class="icon-img" src="data:image/svg+xml,%3c?xml%20version='1.0'%20encoding='UTF-8'?%3e%3csvg%20id='Layer_1'%20xmlns='http://www.w3.org/2000/svg'%20version='1.1'%20viewBox='0%200%20256%20256'%3e%3c!--%20Created%20by%20Zoltan%20Dul%20in%202026%20-%20free%20to%20use%20with%20MIT%20license.%20SVG%20Version:%202.1.1%20--%3e%3cpath%20d='M127,8.5c-12.6-.4-31.7-4.7-41.2-2.2-24.6,6.5-31.8,17.8-32.9,48.9-.9,27.2,7,58,16,74.1,6.8,11.6-8.5,58.2-6.9,80.9,1.5,22.6,20.5,50.7,31.8,40,2.4-2.2,11.4-10.8,16.6-24.3,2.6-6.8-.1-14.6,1.8-22.1,5.2-20.8,4.9-34.6,8.9-34.5,8.1.3,5.2,12.6,8.2,28.8s4.3,43.8,8,49c11,15.5,44.6-10.8,46.8-27.7,3.2-22.6-7.1-73.5.4-84.6,1.8-20.8,7.7-22.8,8.6-50s7.9-40.1,4.6-48.9c-7.9-21.3-2.6-23.8-25.1-34.4s-38.6,7.2-45.7,7Z'%20style='fill:%20none;%20stroke:%20%233b82f6;%20stroke-dasharray:%2010%2010;%20stroke-linejoin:%20round;%20stroke-width:%206px;'/%3e%3cpath%20id='tooth-base'%20d='M123.6,148.7c-7.3-2-11.8,14.6-14.2,20.4-1.6,4.4-3.1,8.3-4.3,12.7-4.4,16.1-1.6,34.3-6.8,50.3-3.5,12.7-15.3,14.4-21.2,2.2-2.9-6.1-3.9-12.9-4.8-19.6-1-7.7-.8-15.6.7-23.1,1.8-11.4,7.5-22,7.5-33.8-.1-17.2-3-32.7-6.7-49.2-8.4-29.3-27.4-79.6,13.2-93.9,12.3-4.9,25,3.3,37.5,3,1.7,0,3.4-.2,5.1-.4,12.9-2.1,27.7-9.6,41-5.3,22.5,7.4,20.6,39.1,16.6,58.5-1,4.8-2.3,9.4-3.6,13.2-2.2,6.2-5.3,12.2-6.7,19.1-1.9,8.4-2.9,16.8-3.7,25-1.5,15.5.3,30.4.5,45.1,0,8.7-.4,17.8-1.2,26.3-.8,8.3-2.5,16.7-4.5,24.9-1.7,7.8-5.6,18.9-14.1,20.5-14.8.7-11.9-38.8-14.3-48.9-1.8-10.1-6.8-42.3-15.9-47.4h-.1Z'%20style='fill:%20%23fff;%20stroke:%20%23000;%20stroke-miterlimit:%2010;%20stroke-width:%208px;'/%3e%3cg%20id='x-line'%3e%3cline%20id='line-2'%20x1='16.7'%20y1='15.6'%20x2='225.3'%20y2='224.2'%20style='fill:%20none;%20stroke:%20%23ef4444;%20stroke-linecap:%20round;%20stroke-width:%2014px;'/%3e%3cline%20id='line-1'%20x1='16.7'%20y1='15.6'%20x2='225.3'%20y2='224.2'%20style='fill:%20none;%20isolation:%20isolate;%20opacity:%20.2;%20stroke:%20%23111827;%20stroke-linecap:%20round;%20stroke-width:%203px;'/%3e%3c/g%3e%3c/svg%3e" alt="" aria-hidden="true"></button></div></div><div id="toothGrid" class="tooth-grid" dir="ltr" data-screen-spacing="normal" data-tooth-num="normal" style="--odon-select-rgb: 59,123,255; --odon-select-border-style: dashed;" aria-label="Tooth grid"></div></section><section class="tooth-info card" aria-label="Tooth information"><div class="card-title">Tooth information</div><p class="tooth-info-overview">The odontogram shows 0 permanent teeth and 0 teeth are missing.</p><p class="tooth-info-line"><span class="tooth-info-heading">Caries:</span> <span class="tooth-info-empty">No carious teeth.</span></p><p class="tooth-info-line"><span class="tooth-info-heading">Fillings:</span> <span class="tooth-info-empty">No filled teeth.</span></p><p class="tooth-info-line"><span class="tooth-info-heading">Root canal treatments:</span> <span class="tooth-info-empty">No root-treated teeth.</span></p><p class="tooth-info-line"><span class="tooth-info-heading">Diagnoses:</span> <span class="tooth-info-empty">no recorded diagnosis</span></p><p class="tooth-info-line"><span class="tooth-info-heading">Wear:</span> <span class="tooth-info-empty">no recorded wear</span></p><p class="tooth-info-line"><span class="tooth-info-heading">Discoloration:</span> <span class="tooth-info-empty">no recorded discoloration</span></p><p class="tooth-info-line"><span class="tooth-info-heading">Orthodontics:</span> <span class="tooth-info-empty">no recorded orthodontic finding</span></p><p class="tooth-info-line"><span class="tooth-info-heading">Prosthetics:</span> <span class="tooth-info-empty">No prosthetics.</span></p><p class="tooth-info-line"><span class="tooth-info-heading">Periodontal status:</span> the periodontium is healthy</p></section></div><aside class="panel"><div class="panel-odontogram-controls"><div class="panel-header"><div><div class="panel-title-row"><span class="panel-title">Controls</span><div class="panel-title-actions"><button id="btnSelectNone" class="btn btn-ghost btn-icon btn-danger" title="Clear selection" aria-label="Clear selection">Clear selection</button><button id="btnToggleControlsCard" class="icon-btn" title="Collapse Controls" aria-label="Collapse Controls"><span class="toggle-icon" aria-hidden="true">−</span></button></div></div><div class="panel-subtitle">Active tooth: <span id="activeToothLabel" class="pill">—</span></div><div id="controlsActions" class="panel-subtitle select-actions"><div class="select-actions-row"><button id="btnSelectAll" class="btn btn-ghost btn-icon" title="All">All</button><button id="btnSelectAllPresent" class="btn btn-ghost btn-icon fade-toggle" title="Teeth">Teeth</button><button id="btnSelectPermanent" class="btn btn-ghost btn-icon fade-toggle" title="Permanent">Permanent</button><button id="btnSelectMilk" class="btn btn-ghost btn-icon fade-toggle" title="Primary">Primary</button><button id="btnSelectImplants" class="btn btn-ghost btn-icon fade-toggle" title="Implants">Implants</button><button id="btnSelectAllMissing" class="btn btn-ghost btn-icon fade-toggle" title="Missing">Missing</button></div><div class="select-actions-row"><button id="btnSelectUpper" class="btn btn-ghost btn-icon" title="Upper">Upper</button><button id="btnSelectUpperFront" class="btn btn-ghost btn-icon" title="Upper 6 front">Upper 6 front</button><button id="btnSelectUpperMolar" class="btn btn-ghost btn-icon" title="Upper molars">Upper molars</button><button id="btnSelectLower" class="btn btn-ghost btn-icon" title="Lower">Lower</button><button id="btnSelectLowerFront" class="btn btn-ghost btn-icon" title="Lower 6 front">Lower 6 front</button><button id="btnSelectLowerMolar" class="btn btn-ghost btn-icon" title="Lower molars">Lower molars</button></div></div></div><div id="warnings" class="warnings"></div></div><div class="panel-body"><div class=""><section class="card" id="statusCard"><div class="card-title card-title-row"><span>Statuses</span><button id="btnToggleStatusCard" class="icon-btn" title="Collapse Statuses" aria-label="Collapse Statuses"><span class="toggle-icon" aria-hidden="true">−</span></button></div><div class="row status-actions" id="statusCardBody"><button id="btnResetAll" class="btn btn-ghost btn-sm">Reset mouth</button><button id="btnPrimaryDentition" class="btn btn-ghost btn-sm">Primary dentition</button><button id="btnMixedDentition" class="btn btn-ghost btn-sm">Mixed dentition</button><button id="btnEdentulous" class="btn btn-toggle btn-sm" aria-pressed="false">Edentulous</button></div><div class="row status-extra-row"><span>Add:</span><select id="statusExtraSelect"></select><button id="statusExtraApply" class="btn btn-ghost btn-sm">OK</button></div></section></div><section class="card"><div class="card-title card-title-row"><span>Tooth details</span><button id="btnResetTooth" class="btn btn-ghost btn-sm" title="Reset tooth to default" aria-label="Reset tooth to default">Reset</button></div><div class="row"><span>Base</span><select id="toothSelect"></select></div><div id="substrateRow" class="row"><span>Tooth condition</span><select id="substrateSelect"></select></div><label id="extractionRow" class="row"><input type="checkbox" id="extractionWound"><span>fresh extraction wound</span></label><label id="missingClosedRow" class="row"><input type="checkbox" id="missingClosed"><span>Closed gap</span></label><div id="restorationRow" class="row"><span>Restoration</span><select id="restorationSelect"></select></div><label id="crownLeakageRow" class="row hidden"><input type="checkbox" id="crownLeakage"><span>Crown marginal leakage</span></label><div id="brokenCrownRow" class="row inline-checks contact-row"><label><input type="checkbox" id="brokenMesial"><span>mesial</span></label><label><input type="checkbox" id="brokenIncisal"><span>incisal</span></label><label><input type="checkbox" id="brokenDistal"><span>distal</span></label></div><div id="contactPointRow" class="row inline-checks contact-row"><label><input type="checkbox" id="contactMesial"><span>mesial contact missing</span></label><label><input type="checkbox" id="contactDistal"><span>distal contact missing</span></label></div><div id="bruxismRow" class="inline-checks bruxism-row wear-stack"><div id="wearEdgeRow" class="row"><label id="wearEdgeSelectLabel"><span>Incisal wear</span><select id="wearEdgeSelect"></select></label><label id="wearEdgeToggleLabel" class="inline-check hidden"><input type="checkbox" id="wearEdgeToggle"><span>Incisal wear</span></label></div><div id="wearCervicalRow" class="row"><label id="wearCervicalSelectLabel"><span>Cervical wear</span><select id="wearCervicalSelect"></select></label><label id="wearCervicalToggleLabel" class="inline-check hidden"><input type="checkbox" id="wearCervicalToggle"><span>Cervical wear</span></label></div></div><div id="discolorationRow" class="row inline-checks"><label id="discolorationSelectLabel"><span>Discoloration</span><select id="discolorationSelect"></select></label><label id="discolorationToggleLabel" class="inline-check hidden"><input type="checkbox" id="discolorationToggle"><span>Discoloration</span></label></div><div id="crownActionsRow" class="row inline-checks bridge-actions-row"><label id="bridgePillarRow" class="inline-check"><input type="checkbox" id="bridgePillar"><span>Bridge abutment</span></label><label id="extractionPlanRow" class="inline-check"><input type="checkbox" id="extractionPlan"><span>Planned extraction</span></label></div><label id="crownReplaceRow" class="row"><input type="checkbox" id="crownReplace"><span>Crown replacement</span></label><label id="crownNeededRow" class="row"><input type="checkbox" id="crownNeeded"><span>Crown needed</span></label></section><div class=""><section id="orthoCard" class="card"><div class="card-title card-title-row"><span>Orthodontics</span></div><div id="orthoApplianceRow" class="row"><span>Ortho appliance</span><select id="orthoApplianceSelect"></select></div><div id="orthoDriftRow" class="row"><span>Displacement</span><select id="orthoDriftSelect"></select></div><div id="orthoVerticalRow" class="row"><span>Vertical</span><select id="orthoVerticalSelect"></select></div><label id="orthoRotationRow" class="row inline-check"><input type="checkbox" id="orthoRotationToggle"><span>Rotation</span></label></section></div><section id="cariesSection" class="card"><div class="card-title card-title-row"><span>Caries</span><button id="btnToggleCariesCard" class="icon-btn" title="Collapse Caries" aria-label="Collapse Caries"><span class="toggle-icon" aria-hidden="true">−</span></button></div><div class="hint">Select caries surfaces</div><div id="cariesDepthRow" class="row"><span>Depth</span><select id="cariesDepthSelect"></select></div><div id="cariesChecks"></div><div id="cariesSubcrownRow" class="check-grid subcrown-row"></div><div id="rootCariesRow" class="row"><span>Root caries</span><select id="rootCariesSelect"></select></div></section><section id="fillingSection" class="card"><div class="card-title card-title-row"><span>Fillings and restorative</span><button id="btnToggleFillingCard" class="icon-btn" title="Collapse Fillings and restorative" aria-label="Collapse Fillings and restorative"><span class="toggle-icon" aria-hidden="true">−</span></button></div><div class="row"><span>Type</span><select id="fillingSelect"></select></div><div id="fillingSurfaceChecks" class="hidden"></div><label id="fillingSimpleRow" class="row fissure-row hidden"><input type="checkbox" id="fillingSimpleToggle"><span>Filled</span></label><div id="fillingSimpleDefectRow" class="row hidden"><span>Filling defect</span><select id="fillingSimpleDefectSelect"></select></div><label id="fissureSealingRow" class="row fissure-row"><input type="checkbox" id="fissureSealing"><span>Fissure sealing</span></label><div id="fillingSubcariesSummary" class="hint hidden"></div><div id="fillingDefectSummary" class="hint hidden"></div></section><section id="rootPeriodontiumSection" class="card"><div class="card-title card-title-row"><span>Root and periodontium</span><button id="btnToggleRootPeriodontiumCard" class="icon-btn" title="Collapse Root and periodontium" aria-label="Collapse Root and periodontium"><span class="toggle-icon" aria-hidden="true">−</span></button></div><div id="rpRootBlock"><div class="hint">Select root status</div><div id="pulpEndoRow" class="row"><span>Pulp / Endo status</span><select id="pulpEndoSelect"></select></div><div id="apicalDxRow" class="row"><span>Apical diagnosis</span><select id="apicalDxSelect"></select></div><div id="periapicalTypeRow" class="row hidden"><span>Apical lesion</span><select id="periapicalTypeSelect"></select></div><div id="resorptionRow" class="row"><span>Root resorption</span><select id="resorptionSelect"></select></div><div class="row inline-checks"><label><input type="checkbox" id="endoResection"><span>Resected tooth</span></label><label><input type="checkbox" id="parapulpalPin"><span>Parapulpal pin</span></label></div></div><div id="rpPerioBlock"><div id="mobilityRow" class="row"><span>Mobility</span><select id="mobilitySelect"></select></div><div id="perioRow" class="perio-block"><div class="perio-block-title">Periodontal probing</div><div id="perioGrid" class="perio-grid"></div><div id="perioReadout" class="hint perio-readout"></div></div><div id="modsChecks" class="check-grid"></div><div id="calculusRow" class="row inline-checks hidden"><label><input type="checkbox" id="calculusToggle"><span>Calculus</span></label></div><div id="periImplantRow" class="row hidden"><span>Peri-implant status</span><select id="periImplantSelect"></select></div></div></section><section id="diagnosesSection" class="card hidden"><div class="card-title card-title-row"><span>Diagnoses</span><button id="btnToggleDiagnosesCard" class="icon-btn" title="Collapse Diagnoses" aria-label="Collapse Diagnoses"><span class="toggle-icon" aria-hidden="true">−</span></button></div><div id="diagnosesRows"></div><div id="dxAddRow" class="row"><select id="dxAddSelect" disabled=""></select></div></section></div></div></aside></main></div>
+\ No newline at end of file
++<div class="odontogram-root" dir="ltr" lang="en"><header class="topbar"><div class="brand"><img class="brand-logo" src="data:<inlined-image>" alt="" aria-hidden="true"><div><div class="title">React Advanced Odontogram</div><div class="subtitle">In English. Using FDI – ISO 3950 numbering. In light mode.</div></div></div><div class="topbar-actions"><button class="btn-theme" title="Intro" aria-label="Intro"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M10 8.5v7l6-3.5-6-3.5z"></path></svg></button><div id="languageMenu" class="topbar-group dropdown"><button class="btn-theme" aria-haspopup="menu" aria-expanded="false" title="Language" aria-label="Language"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"></path></svg></button></div><button class="btn-theme" title="Dark mode" aria-label="Dark mode"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"></path></svg></button><div class="topbar-group"><button id="btnSettingsMenu" class="btn-theme" aria-haspopup="dialog" aria-expanded="false" title="Settings" aria-label="Settings"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg></button></div><button id="btnStatusExport" hidden="" aria-hidden="true" tabindex="-1">Export status</button><button id="btnStatusFhirExport" hidden="" aria-hidden="true" tabindex="-1">FHIR export</button><button id="btnStatusPngExport" hidden="" aria-hidden="true" tabindex="-1">PNG export</button><button id="btnStatusJpgExport" hidden="" aria-hidden="true" tabindex="-1">JPG export</button><button id="btnStatusSvgExport" hidden="" aria-hidden="true" tabindex="-1">SVG image</button><button id="btnPerioSvgExport" hidden="" aria-hidden="true" tabindex="-1">Perio SVG</button><button id="btnPerioPngExport" hidden="" aria-hidden="true" tabindex="-1">Perio PNG</button><button id="btnPerioJpgExport" hidden="" aria-hidden="true" tabindex="-1">Perio JPG</button><div class="topbar-group dropdown"><button id="btnExportMenu" class="btn-theme" aria-haspopup="menu" aria-expanded="false" title="Export" aria-label="Export"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"></path></svg></button></div><button id="btnStatusImport" hidden="" aria-hidden="true" tabindex="-1">Import status</button><div class="topbar-group dropdown"><button id="btnImportMenu" class="btn-theme" aria-haspopup="menu" aria-expanded="false" title="Import" aria-label="Import"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 8l5-5 5 5M12 3v12"></path></svg></button></div><input id="statusImportInput" type="file" accept="application/json" hidden=""><div class="topbar-group"><button id="btnCreditsMenu" class="btn-theme" aria-haspopup="dialog" title="About and credits" aria-label="About and credits"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4M12 8h.01"></path></svg></button></div><a id="btnGithubLink" class="btn-theme" href="https://github.com/ZoliQua/React-Advanced-Odontogram" target="_blank" rel="noopener noreferrer" title="View on GitHub" aria-label="View on GitHub"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5A11.5 11.5 0 0 0 .5 12a11.5 11.5 0 0 0 7.86 10.92c.575.106.785-.25.785-.556 0-.274-.01-1-.016-1.965-3.198.695-3.874-1.541-3.874-1.541-.523-1.33-1.278-1.684-1.278-1.684-1.045-.714.08-.7.08-.7 1.155.082 1.763 1.186 1.763 1.186 1.027 1.76 2.695 1.252 3.352.957.104-.744.402-1.252.732-1.54-2.553-.29-5.238-1.277-5.238-5.686 0-1.256.448-2.283 1.184-3.088-.12-.29-.513-1.46.112-3.045 0 0 .966-.31 3.166 1.18a11.02 11.02 0 0 1 2.88-.388c.977.004 1.96.132 2.88.388 2.198-1.49 3.163-1.18 3.163-1.18.626 1.585.233 2.755.114 3.045.737.805 1.183 1.832 1.183 3.088 0 4.42-2.69 5.393-5.25 5.677.413.357.78 1.06.78 2.137 0 1.543-.014 2.787-.014 3.166 0 .309.206.669.79.555A11.5 11.5 0 0 0 23.5 12 11.5 11.5 0 0 0 12 .5z"></path></svg></a></div></header><main class="layout"><div class="perio-launch-bar"><div id="appViewToggle" class="chart-mode-toggle" role="tablist"><button id="appViewOdontogram" type="button" class="chart-mode-btn is-active" role="tab" aria-selected="true">Odontogram</button><button id="appViewDentalChart" type="button" class="chart-mode-btn" role="tab" aria-selected="false">Periodontal Status</button></div><button type="button" id="openCaseDiagnosesBtn" class="btn btn-ghost" title="Case / regional diagnoses" aria-label="Case / regional diagnoses">Diagnoses</button></div><div class="chart-column"><section class="chart"><div class="chart-header"><div><div class="chart-title">Dental chart</div><div class="chart-hint">Click a tooth. For multi-select, use CMD/CTRL + click.</div></div><div id="chartModeToggle" class="chart-mode-toggle" role="tablist"><button id="chartModeStatus" type="button" class="chart-mode-btn is-active" role="tab" aria-selected="true">Status</button><button id="chartModePlan" type="button" class="chart-mode-btn" role="tab" aria-selected="false">Plan</button><span id="chartModePlanBadge" class="plan-badge odon-hidden">PLAN</span></div><div id="proposedLegend" class="proposed-legend"><span class="proposed-legend-swatch" aria-hidden="true"></span>dashed = proposed</div><div class="chart-actions"><button id="btnOcclView" class="btn btn-toggle btn-icon" aria-pressed="true" title="Occlusal view visibility" aria-label="Occlusal view visibility" data-icon-src="<inlined-svg>" data-xline="1"></button><button id="btnWisdomVisible" class="btn btn-toggle btn-icon" aria-pressed="true" title="Wisdom teeth visibility" aria-label="Wisdom teeth visibility" data-icon-src="<inlined-svg>" data-xline="1"></button><button id="btnBoneVisible" class="btn btn-toggle btn-icon" aria-pressed="true" title="Bone visibility" aria-label="Bone visibility" data-icon-src="<inlined-svg>" data-xline="1"></button><button id="btnPulpVisible" class="btn btn-toggle btn-icon" aria-pressed="true" title="Pulp visibility" aria-label="Pulp visibility" data-icon-src="<inlined-svg>" data-xline="1"></button><button id="btnSelectNoneChart" class="btn btn-ghost btn-icon" title="Clear selection" aria-label="Clear selection"><img class="icon-img" src="data:image/svg+xml,%3c?xml%20version='1.0'%20encoding='UTF-8'?%3e%3csvg%20id='Layer_1'%20xmlns='http://www.w3.org/2000/svg'%20version='1.1'%20viewBox='0%200%20256%20256'%3e%3c!--%20Created%20by%20Zoltan%20Dul%20in%202026%20-%20free%20to%20use%20with%20MIT%20license.%20SVG%20Version:%202.1.1%20--%3e%3cpath%20d='M127,8.5c-12.6-.4-31.7-4.7-41.2-2.2-24.6,6.5-31.8,17.8-32.9,48.9-.9,27.2,7,58,16,74.1,6.8,11.6-8.5,58.2-6.9,80.9,1.5,22.6,20.5,50.7,31.8,40,2.4-2.2,11.4-10.8,16.6-24.3,2.6-6.8-.1-14.6,1.8-22.1,5.2-20.8,4.9-34.6,8.9-34.5,8.1.3,5.2,12.6,8.2,28.8s4.3,43.8,8,49c11,15.5,44.6-10.8,46.8-27.7,3.2-22.6-7.1-73.5.4-84.6,1.8-20.8,7.7-22.8,8.6-50s7.9-40.1,4.6-48.9c-7.9-21.3-2.6-23.8-25.1-34.4s-38.6,7.2-45.7,7Z'%20style='fill:%20none;%20stroke:%20%233b82f6;%20stroke-dasharray:%2010%2010;%20stroke-linejoin:%20round;%20stroke-width:%206px;'/%3e%3cpath%20id='tooth-base'%20d='M123.6,148.7c-7.3-2-11.8,14.6-14.2,20.4-1.6,4.4-3.1,8.3-4.3,12.7-4.4,16.1-1.6,34.3-6.8,50.3-3.5,12.7-15.3,14.4-21.2,2.2-2.9-6.1-3.9-12.9-4.8-19.6-1-7.7-.8-15.6.7-23.1,1.8-11.4,7.5-22,7.5-33.8-.1-17.2-3-32.7-6.7-49.2-8.4-29.3-27.4-79.6,13.2-93.9,12.3-4.9,25,3.3,37.5,3,1.7,0,3.4-.2,5.1-.4,12.9-2.1,27.7-9.6,41-5.3,22.5,7.4,20.6,39.1,16.6,58.5-1,4.8-2.3,9.4-3.6,13.2-2.2,6.2-5.3,12.2-6.7,19.1-1.9,8.4-2.9,16.8-3.7,25-1.5,15.5.3,30.4.5,45.1,0,8.7-.4,17.8-1.2,26.3-.8,8.3-2.5,16.7-4.5,24.9-1.7,7.8-5.6,18.9-14.1,20.5-14.8.7-11.9-38.8-14.3-48.9-1.8-10.1-6.8-42.3-15.9-47.4h-.1Z'%20style='fill:%20%23fff;%20stroke:%20%23000;%20stroke-miterlimit:%2010;%20stroke-width:%208px;'/%3e%3cg%20id='x-line'%3e%3cline%20id='line-2'%20x1='16.7'%20y1='15.6'%20x2='225.3'%20y2='224.2'%20style='fill:%20none;%20stroke:%20%23ef4444;%20stroke-linecap:%20round;%20stroke-width:%2014px;'/%3e%3cline%20id='line-1'%20x1='16.7'%20y1='15.6'%20x2='225.3'%20y2='224.2'%20style='fill:%20none;%20isolation:%20isolate;%20opacity:%20.2;%20stroke:%20%23111827;%20stroke-linecap:%20round;%20stroke-width:%203px;'/%3e%3c/g%3e%3c/svg%3e" alt="" aria-hidden="true"></button></div></div><div id="toothGrid" class="tooth-grid" dir="ltr" data-screen-spacing="normal" data-tooth-num="normal" style="--odon-select-rgb: 59,123,255; --odon-select-border-style: dashed;" aria-label="Tooth grid"></div></section><section class="tooth-info card" aria-label="Tooth information"><div class="card-title">Tooth information</div><p class="tooth-info-overview">The odontogram shows 0 permanent teeth and 0 teeth are missing.</p><p class="tooth-info-line"><span class="tooth-info-heading">Caries:</span> <span class="tooth-info-empty">No carious teeth.</span></p><p class="tooth-info-line"><span class="tooth-info-heading">Fillings:</span> <span class="tooth-info-empty">No filled teeth.</span></p><p class="tooth-info-line"><span class="tooth-info-heading">Root canal treatments:</span> <span class="tooth-info-empty">No root-treated teeth.</span></p><p class="tooth-info-line"><span class="tooth-info-heading">Diagnoses:</span> <span class="tooth-info-empty">no recorded diagnosis</span></p><p class="tooth-info-line"><span class="tooth-info-heading">Wear:</span> <span class="tooth-info-empty">no recorded wear</span></p><p class="tooth-info-line"><span class="tooth-info-heading">Discoloration:</span> <span class="tooth-info-empty">no recorded discoloration</span></p><p class="tooth-info-line"><span class="tooth-info-heading">Orthodontics:</span> <span class="tooth-info-empty">no recorded orthodontic finding</span></p><p class="tooth-info-line"><span class="tooth-info-heading">Prosthetics:</span> <span class="tooth-info-empty">No prosthetics.</span></p><p class="tooth-info-line"><span class="tooth-info-heading">Periodontal status:</span> the periodontium is healthy</p></section></div><aside class="panel"><div class="panel-odontogram-controls"><div class="panel-header"><div><div class="panel-title-row"><span class="panel-title">Controls</span><div class="panel-title-actions"><button id="btnSelectNone" class="btn btn-ghost btn-icon btn-danger" title="Clear selection" aria-label="Clear selection">Clear selection</button><button id="btnToggleControlsCard" class="icon-btn" title="Collapse Controls" aria-label="Collapse Controls"><span class="toggle-icon" aria-hidden="true">−</span></button></div></div><div class="panel-subtitle">Active tooth: <span id="activeToothLabel" class="pill">—</span></div><div id="controlsActions" class="panel-subtitle select-actions"><div class="select-actions-row"><button id="btnSelectAll" class="btn btn-ghost btn-icon" title="All">All</button><button id="btnSelectAllPresent" class="btn btn-ghost btn-icon fade-toggle" title="Teeth">Teeth</button><button id="btnSelectPermanent" class="btn btn-ghost btn-icon fade-toggle" title="Permanent">Permanent</button><button id="btnSelectMilk" class="btn btn-ghost btn-icon fade-toggle" title="Primary">Primary</button><button id="btnSelectImplants" class="btn btn-ghost btn-icon fade-toggle" title="Implants">Implants</button><button id="btnSelectAllMissing" class="btn btn-ghost btn-icon fade-toggle" title="Missing">Missing</button></div><div class="select-actions-row"><button id="btnSelectUpper" class="btn btn-ghost btn-icon" title="Upper">Upper</button><button id="btnSelectUpperFront" class="btn btn-ghost btn-icon" title="Upper 6 front">Upper 6 front</button><button id="btnSelectUpperMolar" class="btn btn-ghost btn-icon" title="Upper molars">Upper molars</button><button id="btnSelectLower" class="btn btn-ghost btn-icon" title="Lower">Lower</button><button id="btnSelectLowerFront" class="btn btn-ghost btn-icon" title="Lower 6 front">Lower 6 front</button><button id="btnSelectLowerMolar" class="btn btn-ghost btn-icon" title="Lower molars">Lower molars</button></div></div></div><div id="warnings" class="warnings"></div></div><div class="panel-body"><div class=""><section class="card" id="statusCard"><div class="card-title card-title-row"><span>Statuses</span><button id="btnToggleStatusCard" class="icon-btn" title="Collapse Statuses" aria-label="Collapse Statuses"><span class="toggle-icon" aria-hidden="true">−</span></button></div><div class="row status-actions" id="statusCardBody"><button id="btnResetAll" class="btn btn-ghost btn-sm">Reset mouth</button><button id="btnPrimaryDentition" class="btn btn-ghost btn-sm">Primary dentition</button><button id="btnMixedDentition" class="btn btn-ghost btn-sm">Mixed dentition</button><button id="btnEdentulous" class="btn btn-toggle btn-sm" aria-pressed="false">Edentulous</button></div><div class="row status-extra-row"><span>Add:</span><select id="statusExtraSelect"></select><button id="statusExtraApply" class="btn btn-ghost btn-sm">OK</button></div></section></div><section class="card"><div class="card-title card-title-row"><span>Tooth details</span><button id="btnResetTooth" class="btn btn-ghost btn-sm" title="Reset tooth to default" aria-label="Reset tooth to default">Reset</button></div><div class="row"><span>Base</span><select id="toothSelect"></select></div><div id="substrateRow" class="row"><span>Tooth condition</span><select id="substrateSelect"></select></div><label id="extractionRow" class="row"><input type="checkbox" id="extractionWound"><span>fresh extraction wound</span></label><label id="missingClosedRow" class="row"><input type="checkbox" id="missingClosed"><span>Closed gap</span></label><div id="restorationRow" class="row"><span>Restoration</span><select id="restorationSelect"></select></div><label id="crownLeakageRow" class="row odon-hidden"><input type="checkbox" id="crownLeakage"><span>Crown marginal leakage</span></label><div id="brokenCrownRow" class="row inline-checks contact-row"><label><input type="checkbox" id="brokenMesial"><span>mesial</span></label><label><input type="checkbox" id="brokenIncisal"><span>incisal</span></label><label><input type="checkbox" id="brokenDistal"><span>distal</span></label></div><div id="contactPointRow" class="row inline-checks contact-row"><label><input type="checkbox" id="contactMesial"><span>mesial contact missing</span></label><label><input type="checkbox" id="contactDistal"><span>distal contact missing</span></label></div><div id="bruxismRow" class="inline-checks bruxism-row wear-stack"><div id="wearEdgeRow" class="row"><label id="wearEdgeSelectLabel"><span>Incisal wear</span><select id="wearEdgeSelect"></select></label><label id="wearEdgeToggleLabel" class="inline-check odon-hidden"><input type="checkbox" id="wearEdgeToggle"><span>Incisal wear</span></label></div><div id="wearCervicalRow" class="row"><label id="wearCervicalSelectLabel"><span>Cervical wear</span><select id="wearCervicalSelect"></select></label><label id="wearCervicalToggleLabel" class="inline-check odon-hidden"><input type="checkbox" id="wearCervicalToggle"><span>Cervical wear</span></label></div></div><div id="discolorationRow" class="row inline-checks"><label id="discolorationSelectLabel"><span>Discoloration</span><select id="discolorationSelect"></select></label><label id="discolorationToggleLabel" class="inline-check odon-hidden"><input type="checkbox" id="discolorationToggle"><span>Discoloration</span></label></div><div id="crownActionsRow" class="row inline-checks bridge-actions-row"><label id="bridgePillarRow" class="inline-check"><input type="checkbox" id="bridgePillar"><span>Bridge abutment</span></label><label id="extractionPlanRow" class="inline-check"><input type="checkbox" id="extractionPlan"><span>Planned extraction</span></label></div><label id="crownReplaceRow" class="row"><input type="checkbox" id="crownReplace"><span>Crown replacement</span></label><label id="crownNeededRow" class="row"><input type="checkbox" id="crownNeeded"><span>Crown needed</span></label></section><div class=""><section id="orthoCard" class="card"><div class="card-title card-title-row"><span>Orthodontics</span></div><div id="orthoApplianceRow" class="row"><span>Ortho appliance</span><select id="orthoApplianceSelect"></select></div><div id="orthoDriftRow" class="row"><span>Displacement</span><select id="orthoDriftSelect"></select></div><div id="orthoVerticalRow" class="row"><span>Vertical</span><select id="orthoVerticalSelect"></select></div><label id="orthoRotationRow" class="row inline-check"><input type="checkbox" id="orthoRotationToggle"><span>Rotation</span></label></section></div><section id="cariesSection" class="card"><div class="card-title card-title-row"><span>Caries</span><button id="btnToggleCariesCard" class="icon-btn" title="Collapse Caries" aria-label="Collapse Caries"><span class="toggle-icon" aria-hidden="true">−</span></button></div><div class="hint">Select caries surfaces</div><div id="cariesDepthRow" class="row"><span>Depth</span><select id="cariesDepthSelect"></select></div><div id="cariesChecks"></div><div id="cariesSubcrownRow" class="check-grid subcrown-row"></div><div id="rootCariesRow" class="row"><span>Root caries</span><select id="rootCariesSelect"></select></div></section><section id="fillingSection" class="card"><div class="card-title card-title-row"><span>Fillings and restorative</span><button id="btnToggleFillingCard" class="icon-btn" title="Collapse Fillings and restorative" aria-label="Collapse Fillings and restorative"><span class="toggle-icon" aria-hidden="true">−</span></button></div><div class="row"><span>Type</span><select id="fillingSelect"></select></div><div id="fillingSurfaceChecks" class="odon-hidden"></div><label id="fillingSimpleRow" class="row fissure-row odon-hidden"><input type="checkbox" id="fillingSimpleToggle"><span>Filled</span></label><div id="fillingSimpleDefectRow" class="row odon-hidden"><span>Filling defect</span><select id="fillingSimpleDefectSelect"></select></div><label id="fissureSealingRow" class="row fissure-row"><input type="checkbox" id="fissureSealing"><span>Fissure sealing</span></label><div id="fillingSubcariesSummary" class="hint odon-hidden"></div><div id="fillingDefectSummary" class="hint odon-hidden"></div></section><section id="rootPeriodontiumSection" class="card"><div class="card-title card-title-row"><span>Root and periodontium</span><button id="btnToggleRootPeriodontiumCard" class="icon-btn" title="Collapse Root and periodontium" aria-label="Collapse Root and periodontium"><span class="toggle-icon" aria-hidden="true">−</span></button></div><div id="rpRootBlock"><div class="hint">Select root status</div><div id="pulpEndoRow" class="row"><span>Pulp / Endo status</span><select id="pulpEndoSelect"></select></div><div id="apicalDxRow" class="row"><span>Apical diagnosis</span><select id="apicalDxSelect"></select></div><div id="periapicalTypeRow" class="row odon-hidden"><span>Apical lesion</span><select id="periapicalTypeSelect"></select></div><div id="resorptionRow" class="row"><span>Root resorption</span><select id="resorptionSelect"></select></div><div class="row inline-checks"><label><input type="checkbox" id="endoResection"><span>Resected tooth</span></label><label><input type="checkbox" id="parapulpalPin"><span>Parapulpal pin</span></label></div></div><div id="rpPerioBlock"><div id="mobilityRow" class="row"><span>Mobility</span><select id="mobilitySelect"></select></div><div id="perioRow" class="perio-block"><div class="perio-block-title">Periodontal probing</div><div id="perioGrid" class="perio-grid"></div><div id="perioReadout" class="hint perio-readout"></div></div><div id="modsChecks" class="check-grid"></div><div id="calculusRow" class="row inline-checks odon-hidden"><label><input type="checkbox" id="calculusToggle"><span>Calculus</span></label></div><div id="periImplantRow" class="row odon-hidden"><span>Peri-implant status</span><select id="periImplantSelect"></select></div></div></section><section id="diagnosesSection" class="card odon-hidden"><div class="card-title card-title-row"><span>Diagnoses</span><button id="btnToggleDiagnosesCard" class="icon-btn" title="Collapse Diagnoses" aria-label="Collapse Diagnoses"><span class="toggle-icon" aria-hidden="true">−</span></button></div><div id="diagnosesRows"></div><div id="dxAddRow" class="row"><select id="dxAddSelect" disabled=""></select></div></section></div></div></aside></main></div>
+\ No newline at end of file
+diff --git a/src/__tests__/r2a-toggle-ui.test.ts b/src/__tests__/r2a-toggle-ui.test.ts
+index 6afbc1c..2c1bfa9 100644
+--- a/src/__tests__/r2a-toggle-ui.test.ts
++++ b/src/__tests__/r2a-toggle-ui.test.ts
+@@ -259,7 +259,7 @@ describe("R2-A Task 3: real click wiring (setChartMode + syncChartModeUi via a p
+           <div id="chartModeToggle" class="chart-mode-toggle" role="tablist">
+             <button id="chartModeStatus" type="button" class="chart-mode-btn is-active" role="tab" aria-selected="true">Status</button>
+             <button id="chartModePlan" type="button" class="chart-mode-btn" role="tab" aria-selected="false">Plan</button>
+-            <span id="chartModePlanBadge" class="plan-badge hidden">PLAN</span>
++            <span id="chartModePlanBadge" class="plan-badge odon-hidden">PLAN</span>
+           </div>
+         </div>
+       </section>
+@@ -286,7 +286,7 @@ describe("R2-A Task 3: real click wiring (setChartMode + syncChartModeUi via a p
+     expect(planBtn.classList.contains("is-active")).toBe(true);
+     expect(statusBtn.classList.contains("is-active")).toBe(false);
+     expect(chartCard.classList.contains("plan-mode")).toBe(true);
+-    expect(badge.classList.contains("hidden")).toBe(false);
++    expect(badge.classList.contains("odon-hidden")).toBe(false);
+   });
+ 
+   it("clicking Status reverts mode, re-activates Status, and clears the cue", () => {
+@@ -300,7 +300,7 @@ describe("R2-A Task 3: real click wiring (setChartMode + syncChartModeUi via a p
+     expect(statusBtn.classList.contains("is-active")).toBe(true);
+     expect(planBtn.classList.contains("is-active")).toBe(false);
+     expect(chartCard.classList.contains("plan-mode")).toBe(false);
+-    expect(badge.classList.contains("hidden")).toBe(true);
++    expect(badge.classList.contains("odon-hidden")).toBe(true);
+   });
+ 
+   it("clicking the already-active segment is a no-op (mode/classes unchanged)", () => {
+@@ -309,7 +309,7 @@ describe("R2-A Task 3: real click wiring (setChartMode + syncChartModeUi via a p
+     expect(getChartMode()).toBe("status");
+     expect(statusBtn.classList.contains("is-active")).toBe(true);
+     expect(chartCard.classList.contains("plan-mode")).toBe(false);
+-    expect(badge.classList.contains("hidden")).toBe(true);
++    expect(badge.classList.contains("odon-hidden")).toBe(true);
+   });
+ 
+   it("setChartMode() with no chart-mode DOM mounted at all does not throw (null-safe syncChartModeUi)", () => {
+diff --git a/src/__tests__/r2c-proposed-legend.test.ts b/src/__tests__/r2c-proposed-legend.test.ts
+index 7148a0d..7bab805 100644
+--- a/src/__tests__/r2c-proposed-legend.test.ts
++++ b/src/__tests__/r2c-proposed-legend.test.ts
+@@ -237,7 +237,7 @@ describe("R2-C Task 2: real toggle wiring — legend reachable only under .chart
+           <div id="chartModeToggle" class="chart-mode-toggle" role="tablist">
+             <button id="chartModeStatus" type="button" class="chart-mode-btn is-active" role="tab" aria-selected="true">Status</button>
+             <button id="chartModePlan" type="button" class="chart-mode-btn" role="tab" aria-selected="false">Plan</button>
+-            <span id="chartModePlanBadge" class="plan-badge hidden">PLAN</span>
++            <span id="chartModePlanBadge" class="plan-badge odon-hidden">PLAN</span>
+           </div>
+           <div id="proposedLegend" class="proposed-legend">
+             <span class="proposed-legend-swatch" aria-hidden="true"></span>
+diff --git a/src/__tests__/root-periodontium-card.test.tsx b/src/__tests__/root-periodontium-card.test.tsx
+index 0090194..735e6c7 100644
+--- a/src/__tests__/root-periodontium-card.test.tsx
++++ b/src/__tests__/root-periodontium-card.test.tsx
+@@ -104,7 +104,7 @@ describe("PR 3e: <RootPeriodontiumCard/> renders declaratively", () => {
+     __setSelectionForTest([11]);
+     renderControls();
+     const periImplant = document.getElementById("periImplantSelect") as HTMLSelectElement;
+-    expect(document.getElementById("periImplantRow")?.classList.contains("hidden")).toBe(false);
++    expect(document.getElementById("periImplantRow")?.classList.contains("odon-hidden")).toBe(false);
+     fireEvent.change(periImplant, { target: { value: "mucositis" } });
+     expect(getStatusChart().teeth[11].periImplant).toBe("mucositis");
+   });
+@@ -136,13 +136,13 @@ describe("PR 3e: <RootPeriodontiumCard/> renders declaratively", () => {
+     __setToothStateForTest(11, { toothSelection: "tooth-base" });
+     __setActiveToothForTest(11);
+     renderControls();
+-    expect(document.getElementById("rpRootBlock")?.classList.contains("hidden")).toBe(false);
+-    expect(document.getElementById("rpPerioBlock")?.classList.contains("hidden")).toBe(false);
++    expect(document.getElementById("rpRootBlock")?.classList.contains("odon-hidden")).toBe(false);
++    expect(document.getElementById("rpPerioBlock")?.classList.contains("odon-hidden")).toBe(false);
+ 
+     // Plan mode: the (status-only) perio block hides, the root block stays.
+     act(() => { setChartMode("plan"); });
+-    expect(document.getElementById("rpPerioBlock")?.classList.contains("hidden")).toBe(true);
+-    expect(document.getElementById("rpRootBlock")?.classList.contains("hidden")).toBe(false);
++    expect(document.getElementById("rpPerioBlock")?.classList.contains("odon-hidden")).toBe(true);
++    expect(document.getElementById("rpRootBlock")?.classList.contains("odon-hidden")).toBe(false);
+     cleanup();
+ 
+     // A missing tooth (base "none") hides the root block.
+@@ -152,7 +152,7 @@ describe("PR 3e: <RootPeriodontiumCard/> renders declaratively", () => {
+     __setToothStateForTest(11, { toothSelection: "none" });
+     __setActiveToothForTest(11);
+     renderControls();
+-    expect(document.getElementById("rpRootBlock")?.classList.contains("hidden")).toBe(true);
++    expect(document.getElementById("rpRootBlock")?.classList.contains("odon-hidden")).toBe(true);
+   });
+ 
+   it("still renders #perioGrid and the imperative probing carve-out works", () => {
+diff --git a/src/__tests__/sp13-tooth-details.test.ts b/src/__tests__/sp13-tooth-details.test.ts
+index 71b6170..640b5ad 100644
+--- a/src/__tests__/sp13-tooth-details.test.ts
++++ b/src/__tests__/sp13-tooth-details.test.ts
+@@ -46,16 +46,16 @@ function mountDetailControls(): void {
+   document.body.innerHTML = "";
+   document.body.innerHTML = `
+     <label id="wearEdgeSelectLabel"><select id="wearEdgeSelect"></select></label>
+-    <label id="wearEdgeToggleLabel" class="hidden"><input type="checkbox" id="wearEdgeToggle" /></label>
++    <label id="wearEdgeToggleLabel" class="odon-hidden"><input type="checkbox" id="wearEdgeToggle" /></label>
+     <label id="wearCervicalSelectLabel"><select id="wearCervicalSelect"></select></label>
+-    <label id="wearCervicalToggleLabel" class="hidden"><input type="checkbox" id="wearCervicalToggle" /></label>
++    <label id="wearCervicalToggleLabel" class="odon-hidden"><input type="checkbox" id="wearCervicalToggle" /></label>
+     <label id="discolorationSelectLabel"><select id="discolorationSelect"></select></label>
+-    <label id="discolorationToggleLabel" class="hidden"><input type="checkbox" id="discolorationToggle" /></label>
++    <label id="discolorationToggleLabel" class="odon-hidden"><input type="checkbox" id="discolorationToggle" /></label>
+   `;
+ }
+ 
+ function isHidden(id: string): boolean {
+-  return document.getElementById(id)!.classList.contains("hidden");
++  return document.getElementById(id)!.classList.contains("odon-hidden");
+ }
+ 
+ function checkbox(id: string): HTMLInputElement {
+diff --git a/src/__tests__/sp13-wear-layout.test.ts b/src/__tests__/sp13-wear-layout.test.ts
+index 1d5d12b..31df37b 100644
+--- a/src/__tests__/sp13-wear-layout.test.ts
++++ b/src/__tests__/sp13-wear-layout.test.ts
+@@ -240,7 +240,7 @@ describe("SP13 Task 1: wear controls on separate rows, extraction below (overflo
+     // in for a selected natural tooth-base tooth. Replicate the exact
+     // reparent call odontogram.ts makes in that branch (~2662-2663):
+     //   bruxismRow.appendChild(extractionPlanRow)
+-    expect(bruxismRow.classList.contains("hidden")).toBe(false);
++    expect(bruxismRow.classList.contains("odon-hidden")).toBe(false);
+     bruxismRow.appendChild(extractionPlanRow);
+ 
+     expect(extractionPlanRow.parentElement).toBe(bruxismRow);
+@@ -263,8 +263,8 @@ describe("SP13 Task 1: wear controls on separate rows, extraction below (overflo
+ 
+   it("the toggle-labels start hidden (default complex mode unchanged)", () => {
+     render(createElement(App));
+-    expect(document.querySelector("#wearEdgeToggleLabel")?.classList.contains("hidden")).toBe(true);
+-    expect(document.querySelector("#wearCervicalToggleLabel")?.classList.contains("hidden")).toBe(true);
+-    expect(document.querySelector("#discolorationToggleLabel")?.classList.contains("hidden")).toBe(true);
++    expect(document.querySelector("#wearEdgeToggleLabel")?.classList.contains("odon-hidden")).toBe(true);
++    expect(document.querySelector("#wearCervicalToggleLabel")?.classList.contains("odon-hidden")).toBe(true);
++    expect(document.querySelector("#discolorationToggleLabel")?.classList.contains("odon-hidden")).toBe(true);
+   });
+ });
+diff --git a/src/__tests__/sp15-inflammation-toggle.test.ts b/src/__tests__/sp15-inflammation-toggle.test.ts
+index fddc557..6d73044 100644
+--- a/src/__tests__/sp15-inflammation-toggle.test.ts
++++ b/src/__tests__/sp15-inflammation-toggle.test.ts
+@@ -46,21 +46,21 @@ describe("SP15 Task 3 (B4): inflammation mod checkbox visible only for missing/s
+   it("hides the row for a present tooth (tooth-base)", () => {
+     const { container, label } = buildModsChecksFixture();
+     __syncInflammationModVisibilityForTest(container, "tooth-base");
+-    expect(label.classList.contains("hidden")).toBe(true);
++    expect(label.classList.contains("odon-hidden")).toBe(true);
+     document.body.removeChild(container);
+   });
+ 
+   it("hides the row for a present milk tooth (milktooth)", () => {
+     const { container, label } = buildModsChecksFixture();
+     __syncInflammationModVisibilityForTest(container, "milktooth");
+-    expect(label.classList.contains("hidden")).toBe(true);
++    expect(label.classList.contains("odon-hidden")).toBe(true);
+     document.body.removeChild(container);
+   });
+ 
+   it("hides the row for an implant (NEW in B4 — periImplant covers it instead)", () => {
+     const { container, label } = buildModsChecksFixture();
+     __syncInflammationModVisibilityForTest(container, "implant");
+-    expect(label.classList.contains("hidden")).toBe(true);
++    expect(label.classList.contains("odon-hidden")).toBe(true);
+     document.body.removeChild(container);
+   });
+ 
+@@ -68,33 +68,33 @@ describe("SP15 Task 3 (B4): inflammation mod checkbox visible only for missing/s
+     const { container, label } = buildModsChecksFixture();
+     // Start hidden (as it would be after a present-tooth sync) to prove the
+     // helper actively un-hides it for "none", not just leaves it alone.
+-    label.classList.add("hidden");
++    label.classList.add("odon-hidden");
+     __syncInflammationModVisibilityForTest(container, "none");
+-    expect(label.classList.contains("hidden")).toBe(false);
++    expect(label.classList.contains("odon-hidden")).toBe(false);
+     document.body.removeChild(container);
+   });
+ 
+   it("shows the row for an extraction-socket (toothSelection: \"no-tooth-after-extraction\")", () => {
+     const { container, label } = buildModsChecksFixture();
+-    label.classList.add("hidden");
++    label.classList.add("odon-hidden");
+     __syncInflammationModVisibilityForTest(container, "no-tooth-after-extraction");
+-    expect(label.classList.contains("hidden")).toBe(false);
++    expect(label.classList.contains("odon-hidden")).toBe(false);
+     document.body.removeChild(container);
+   });
+ 
+   it("toggles correctly across repeated calls (present -> missing -> implant -> socket)", () => {
+     const { container, label } = buildModsChecksFixture();
+     __syncInflammationModVisibilityForTest(container, "tooth-base");
+-    expect(label.classList.contains("hidden")).toBe(true);
++    expect(label.classList.contains("odon-hidden")).toBe(true);
+ 
+     __syncInflammationModVisibilityForTest(container, "none");
+-    expect(label.classList.contains("hidden")).toBe(false);
++    expect(label.classList.contains("odon-hidden")).toBe(false);
+ 
+     __syncInflammationModVisibilityForTest(container, "implant");
+-    expect(label.classList.contains("hidden")).toBe(true);
++    expect(label.classList.contains("odon-hidden")).toBe(true);
+ 
+     __syncInflammationModVisibilityForTest(container, "no-tooth-after-extraction");
+-    expect(label.classList.contains("hidden")).toBe(false);
++    expect(label.classList.contains("odon-hidden")).toBe(false);
+     document.body.removeChild(container);
+   });
+ });
+diff --git a/src/__tests__/sp7-card-merge.test.ts b/src/__tests__/sp7-card-merge.test.ts
+index d0018ba..21acf3c 100644
+--- a/src/__tests__/sp7-card-merge.test.ts
++++ b/src/__tests__/sp7-card-merge.test.ts
+@@ -247,15 +247,15 @@ describe("SP7 Task 5: Root and Periodontium merged card", () => {
+     document.body.appendChild(container);
+ 
+     __syncInflammationModVisibilityForTest(container, "tooth-base");
+-    expect(label.classList.contains("hidden")).toBe(true);
++    expect(label.classList.contains("odon-hidden")).toBe(true);
+ 
+     // SP15 Task 3 / B4: an implant now hides this checkbox too (peri-implant
+     // inflammation is covered by the dedicated `periImplant` axis instead) —
+     // superseding SP7's original "shows it for an implant" behavior.
+     __syncInflammationModVisibilityForTest(container, "implant");
+-    expect(label.classList.contains("hidden")).toBe(true);
++    expect(label.classList.contains("odon-hidden")).toBe(true);
+ 
+     __syncInflammationModVisibilityForTest(container, "none");
+-    expect(label.classList.contains("hidden")).toBe(false);
++    expect(label.classList.contains("odon-hidden")).toBe(false);
+   });
+ });
+diff --git a/src/__tests__/sp8-peri-implant-ui.test.ts b/src/__tests__/sp8-peri-implant-ui.test.ts
+index db7dd04..d39ccd5 100644
+--- a/src/__tests__/sp8-peri-implant-ui.test.ts
++++ b/src/__tests__/sp8-peri-implant-ui.test.ts
+@@ -213,14 +213,14 @@ describe("SP8 Task 5: peri-implant UI", () => {
+     document.body.innerHTML = "";
+     const row = document.createElement("div");
+     row.id = "periImplantRow";
+-    row.className = "row hidden";
++    row.className = "row odon-hidden";
+     document.body.appendChild(row);
+ 
+     __syncPeriImplantVisibilityForTest(row, null, "implant");
+-    expect(row.classList.contains("hidden")).toBe(false);
++    expect(row.classList.contains("odon-hidden")).toBe(false);
+ 
+     __syncPeriImplantVisibilityForTest(row, null, "tooth-base");
+-    expect(row.classList.contains("hidden")).toBe(true);
++    expect(row.classList.contains("odon-hidden")).toBe(true);
+   });
+ 
+   it("mods checkboxes hidden for an implant", () => {
+@@ -246,12 +246,12 @@ describe("SP8 Task 5: peri-implant UI", () => {
+     document.body.appendChild(container);
+ 
+     __syncPeriImplantVisibilityForTest(null, container, "implant");
+-    expect(parodontalLabel.classList.contains("hidden")).toBe(true);
+-    expect(inflammationLabel.classList.contains("hidden")).toBe(true);
++    expect(parodontalLabel.classList.contains("odon-hidden")).toBe(true);
++    expect(inflammationLabel.classList.contains("odon-hidden")).toBe(true);
+ 
+     __syncPeriImplantVisibilityForTest(null, container, "tooth-base");
+-    expect(parodontalLabel.classList.contains("hidden")).toBe(false);
+-    expect(inflammationLabel.classList.contains("hidden")).toBe(false);
++    expect(parodontalLabel.classList.contains("odon-hidden")).toBe(false);
++    expect(inflammationLabel.classList.contains("odon-hidden")).toBe(false);
+   });
+ 
+   it("selecting a value writes state.periImplant", () => {
+diff --git a/src/__tests__/stylesheet-scope.test.ts b/src/__tests__/stylesheet-scope.test.ts
+new file mode 100644
+index 0000000..5facfa4
+--- /dev/null
++++ b/src/__tests__/stylesheet-scope.test.ts
+@@ -0,0 +1,63 @@
++// Part of React Advanced Odontogram - https://github.com/ZoliQua/React-Advanced-Odontogram
++// Created by Zoltan Dul (https://github.com/ZoliQua) 2025-2026
++
++// The shipped stylesheet must not style the host page: no html/body rules, no
++// theme variables a host might also use (--bg, --card, --accent…), no global
++// `.hidden`, and every selector confined to the component root or to the
++// engine's own `odon-*` popups by tools/postcss-scope.js.
++import { describe, it, expect } from "vitest";
++import { readFileSync } from "node:fs";
++import { fileURLToPath } from "node:url";
++import postcss from "postcss";
++import odontogramScope, { ODONTOGRAM_SCOPE } from "../../tools/postcss-scope.js";
++
++// Captured first so Vite does not rewrite `new URL(literal, import.meta.url)`
++// as an asset URL (same workaround as sp16-fillings-card.test.ts).
++const testFileUrl = import.meta.url;
++const cssPath = fileURLToPath(new URL("../index.css", testFileUrl));
++const source = readFileSync(cssPath, "utf8");
++const scoped = postcss([odontogramScope()]).process(source, { from: cssPath }).css;
++
++function selectors(css: string): string[] {
++  const out: string[] = [];
++  postcss.parse(css).walkRules((rule) => {
++    if (rule.parent?.type === "atrule" && /keyframes$/i.test((rule.parent as postcss.AtRule).name)) return;
++    out.push(...rule.selectors);
++  });
++  return out;
++}
++
++describe("library stylesheet scope", () => {
++  it("has no page-level rules", () => {
++    for (const s of selectors(source)) expect(s).not.toMatch(/^(html|body)\b|(^|\s)body\b/);
++  });
++
++  it("keeps its theme variables private", () => {
++    expect(source).not.toMatch(/(^|[;{\s])--(bg|panel|card|muted|text|line|accent2?)\s*:/m);
++    expect(source).not.toMatch(/var\(--(bg|panel|card|muted|text|line|accent2?)[,)]/);
++    expect(source).toMatch(/--_odon-bg\s*:/);
++  });
++
++  it("namespaces its hide utility", () => {
++    expect(source).not.toMatch(/(^|[\s,}])\.hidden\s*\{/m);
++    expect(source).toMatch(/\.odon-hidden\s*\{/);
++  });
++
++  it("confines every selector to the component or its odon-* popups", () => {
++    const unscoped = selectors(scoped).filter(
++      (s) => !s.includes(ODONTOGRAM_SCOPE) && !/^(:root|\.dark|\.odontogram-root|\.dark \.odontogram-root)$/.test(s.trim()),
++    );
++    expect(unscoped).toEqual([]);
++  });
++
++  it("puts the scope before pseudo-elements and leaves specificity alone", () => {
++    const out = postcss([odontogramScope({ include: () => true })]).process(
++      ".tooth-tile:after{} .a::before{} .dark .btn{}",
++      { from: undefined },
++    ).css;
++    expect(out).toContain(`.tooth-tile${ODONTOGRAM_SCOPE}:after`);
++    expect(out).toContain(`.a${ODONTOGRAM_SCOPE}::before`);
++    expect(out).toContain(`.dark .btn${ODONTOGRAM_SCOPE}`);
++    expect(ODONTOGRAM_SCOPE.startsWith(":where(")).toBe(true);
++  });
++});
+diff --git a/src/__tests__/tooth-details-card.test.tsx b/src/__tests__/tooth-details-card.test.tsx
+index 656a6e7..7b1e17e 100644
+--- a/src/__tests__/tooth-details-card.test.tsx
++++ b/src/__tests__/tooth-details-card.test.tsx
+@@ -110,10 +110,10 @@ describe("PR 3f: <ToothDetailsCard/> renders declaratively", () => {
+     __setSelectionForTest([11]);
+     // Complex (default): the selects are shown, the toggles hidden.
+     renderControls();
+-    expect(document.getElementById("wearEdgeSelectLabel")?.classList.contains("hidden")).toBe(false);
+-    expect(document.getElementById("wearEdgeToggleLabel")?.classList.contains("hidden")).toBe(true);
+-    expect(document.getElementById("discolorationSelectLabel")?.classList.contains("hidden")).toBe(false);
+-    expect(document.getElementById("discolorationToggleLabel")?.classList.contains("hidden")).toBe(true);
++    expect(document.getElementById("wearEdgeSelectLabel")?.classList.contains("odon-hidden")).toBe(false);
++    expect(document.getElementById("wearEdgeToggleLabel")?.classList.contains("odon-hidden")).toBe(true);
++    expect(document.getElementById("discolorationSelectLabel")?.classList.contains("odon-hidden")).toBe(false);
++    expect(document.getElementById("discolorationToggleLabel")?.classList.contains("odon-hidden")).toBe(true);
+ 
+     // Simple: the toggles are shown, the selects hidden (level flips them, never
+     // mutating the stored value). The level goes in as a provider prop: the
+@@ -123,10 +123,10 @@ describe("PR 3f: <ToothDetailsCard/> renders declaratively", () => {
+     __setToothStateForTest(11, { toothSelection: "tooth-base" });
+     __setSelectionForTest([11]);
+     renderControls({ wearDetailLevel: "simple", discolorationDetailLevel: "simple" });
+-    expect(document.getElementById("wearEdgeSelectLabel")?.classList.contains("hidden")).toBe(true);
+-    expect(document.getElementById("wearEdgeToggleLabel")?.classList.contains("hidden")).toBe(false);
+-    expect(document.getElementById("discolorationSelectLabel")?.classList.contains("hidden")).toBe(true);
+-    expect(document.getElementById("discolorationToggleLabel")?.classList.contains("hidden")).toBe(false);
++    expect(document.getElementById("wearEdgeSelectLabel")?.classList.contains("odon-hidden")).toBe(true);
++    expect(document.getElementById("wearEdgeToggleLabel")?.classList.contains("odon-hidden")).toBe(false);
++    expect(document.getElementById("discolorationSelectLabel")?.classList.contains("odon-hidden")).toBe(true);
++    expect(document.getElementById("discolorationToggleLabel")?.classList.contains("odon-hidden")).toBe(false);
+     // The simple-mode toggle writes the canonical value.
+     fireEvent.click(document.getElementById("wearEdgeToggle") as HTMLInputElement);
+     expect(getStatusChart().teeth[11].wearEdge).toBe("attrition");
+@@ -156,7 +156,7 @@ describe("PR 3f: <ToothDetailsCard/> renders declaratively", () => {
+     __setToothStateForTest(11, { toothSelection: "tooth-base" });
+     __setSelectionForTest([11]);
+     renderControls();
+-    expect(document.getElementById("crownLeakageRow")?.classList.contains("hidden")).toBe(true);
++    expect(document.getElementById("crownLeakageRow")?.classList.contains("odon-hidden")).toBe(true);
+     cleanup();
+ 
+     __resetChartStateForTest();
+@@ -165,7 +165,7 @@ describe("PR 3f: <ToothDetailsCard/> renders declaratively", () => {
+     __setToothStateForTest(11, { toothSelection: "tooth-base", restorationType: "crown", restorationMaterial: "emax" });
+     __setSelectionForTest([11]);
+     renderControls();
+-    expect(document.getElementById("crownLeakageRow")?.classList.contains("hidden")).toBe(false);
++    expect(document.getElementById("crownLeakageRow")?.classList.contains("odon-hidden")).toBe(false);
+     cleanup();
+ 
+     // #restorationRow is hidden on a radix substrate; #substrateRow hidden on an implant.
+@@ -175,7 +175,7 @@ describe("PR 3f: <ToothDetailsCard/> renders declaratively", () => {
+     __setToothStateForTest(11, { toothSelection: "tooth-base", toothSubstrate: "radix" });
+     __setSelectionForTest([11]);
+     renderControls();
+-    expect(document.getElementById("restorationRow")?.classList.contains("hidden")).toBe(true);
++    expect(document.getElementById("restorationRow")?.classList.contains("odon-hidden")).toBe(true);
+     cleanup();
+ 
+     __resetChartStateForTest();
+@@ -184,7 +184,7 @@ describe("PR 3f: <ToothDetailsCard/> renders declaratively", () => {
+     __setToothStateForTest(11, { toothSelection: "implant" });
+     __setSelectionForTest([11]);
+     renderControls();
+-    expect(document.getElementById("substrateRow")?.classList.contains("hidden")).toBe(true);
++    expect(document.getElementById("substrateRow")?.classList.contains("odon-hidden")).toBe(true);
+   });
+ 
+   it("#extractionPlanRow reparents to the correct container per state", () => {
+diff --git a/src/__tests__/tooth-details-selection.test.tsx b/src/__tests__/tooth-details-selection.test.tsx
+index c7c135a..989ac99 100644
+--- a/src/__tests__/tooth-details-selection.test.tsx
++++ b/src/__tests__/tooth-details-selection.test.tsx
+@@ -51,7 +51,7 @@ async function waitForGrid() {
+ function tile(n: number): HTMLElement {
+   return document.querySelector(`.tooth-tile[data-tooth="${n}"]`) as HTMLElement;
+ }
+-const isHidden = (id: string) => document.getElementById(id)!.classList.contains("hidden");
++const isHidden = (id: string) => document.getElementById(id)!.classList.contains("odon-hidden");
+ 
+ describe("Tooth-details card: selection & row visibility (Tier 3f regressions)", () => {
+   it("hides the extraction-wound / closed-gap rows for a selected permanent tooth", async () => {
+diff --git a/src/demo.css b/src/demo.css
+new file mode 100644
+index 0000000..90614fe
+--- /dev/null
++++ b/src/demo.css
+@@ -0,0 +1,13 @@
++/* Demo page only (src/main.tsx). The library stylesheet (index.css) never
++   styles the host page: no html/body/global rules ship in dist/style.css. */
++*{box-sizing:border-box}
++html,body{height:100%}
++body{
++  margin:0;
++  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
++  background: radial-gradient(1200px 600px at 15% 0%, #ffffff 0%, var(--_odon-bg) 60%);
++  color:var(--_odon-text);
++}
++.dark body{
++  background: var(--_odon-bg);
++}
+diff --git a/src/index.css b/src/index.css
+index 6c7f0b4..4f97ac4 100644
+--- a/src/index.css
++++ b/src/index.css
+@@ -1,62 +1,55 @@
+ 
+ :root{
+-  --bg: var(--odon-bg, #f3f6fb);
+-  --panel: var(--odon-panel, #ffffff);
+-  --card: var(--odon-card, #ffffff);
+-  --muted: var(--odon-muted, #5b6b7d);
+-  --text: var(--odon-text, #1e2a3a);
+-  --line: var(--odon-line, #d7e0ec);
+-  --accent: var(--odon-accent, #3b7bff);
+-  --accent2: var(--odon-accent2, #12b981);
++  --_odon-bg: var(--odon-bg, #f3f6fb);
++  --_odon-panel: var(--odon-panel, #ffffff);
++  --_odon-card: var(--odon-card, #ffffff);
++  --_odon-muted: var(--odon-muted, #5b6b7d);
++  --_odon-text: var(--odon-text, #1e2a3a);
++  --_odon-line: var(--odon-line, #d7e0ec);
++  --_odon-accent: var(--odon-accent, #3b7bff);
++  --_odon-accent2: var(--odon-accent2, #12b981);
+ }
+ /* When themeConfig is applied via JS, --odon-* properties are set on .odontogram-root.
+    Re-resolve the shorthand variables so children pick up the overrides. */
+ .odontogram-root{
+-  --bg: var(--odon-bg, #f3f6fb);
+-  --panel: var(--odon-panel, #ffffff);
+-  --card: var(--odon-card, #ffffff);
+-  --muted: var(--odon-muted, #5b6b7d);
+-  --text: var(--odon-text, #1e2a3a);
+-  --line: var(--odon-line, #d7e0ec);
+-  --accent: var(--odon-accent, #3b7bff);
+-  --accent2: var(--odon-accent2, #12b981);
+-  color: var(--text);
++  --_odon-bg: var(--odon-bg, #f3f6fb);
++  --_odon-panel: var(--odon-panel, #ffffff);
++  --_odon-card: var(--odon-card, #ffffff);
++  --_odon-muted: var(--odon-muted, #5b6b7d);
++  --_odon-text: var(--odon-text, #1e2a3a);
++  --_odon-line: var(--odon-line, #d7e0ec);
++  --_odon-accent: var(--odon-accent, #3b7bff);
++  --_odon-accent2: var(--odon-accent2, #12b981);
++  color: var(--_odon-text);
+ }
+ .dark .odontogram-root{
+-  --bg: var(--odon-bg, #0f172a);
+-  --panel: var(--odon-panel, #1e293b);
+-  --card: var(--odon-card, #1e293b);
+-  --muted: var(--odon-muted, #94a3b8);
+-  --text: var(--odon-text, #f1f5f9);
+-  --line: var(--odon-line, #334155);
++  --_odon-bg: var(--odon-bg, #0f172a);
++  --_odon-panel: var(--odon-panel, #1e293b);
++  --_odon-card: var(--odon-card, #1e293b);
++  --_odon-muted: var(--odon-muted, #94a3b8);
++  --_odon-text: var(--odon-text, #f1f5f9);
++  --_odon-line: var(--odon-line, #334155);
+ }
+ *{box-sizing:border-box}
+-html,body{height:100%}
+-body{
+-  margin:0;
+-  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+-  background: radial-gradient(1200px 600px at 15% 0%, #ffffff 0%, var(--bg) 60%);
+-  color:var(--text);
+-}
+ .topbar{
+   display:flex; align-items:center; justify-content:space-between;
+   padding:14px 18px;
+-  border-bottom:1px solid var(--line);
++  border-bottom:1px solid var(--_odon-line);
+   background: rgba(255,255,255,.85);
+   backdrop-filter: blur(10px);
+   position:sticky; top:0; z-index:10;
+ }
+ .brand{display:flex; gap:12px; align-items:center}
+-.dot{width:10px;height:10px;border-radius:999px;background:var(--accent2); box-shadow:0 0 0 6px rgba(18,185,129,.12);}
++.dot{width:10px;height:10px;border-radius:999px;background:var(--_odon-accent2); box-shadow:0 0 0 6px rgba(18,185,129,.12);}
+ .brand-logo{height:44px; width:auto; display:block; flex:0 0 auto;}
+ .title{font-weight:700; letter-spacing:.2px}
+-.subtitle{font-size:12px; color:var(--muted); margin-top:2px}
++.subtitle{font-size:12px; color:var(--_odon-muted); margin-top:2px}
+ .topbar-actions{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
+ .topbar-group{display:flex; align-items:center; gap:8px}
+ .segmented{display:flex; gap:6px}
+ .btn{
+-  border:1px solid var(--line);
+-  color:var(--text);
++  border:1px solid var(--_odon-line);
++  color:var(--_odon-text);
+   background:rgba(59,123,255,.12);
+   padding:8px 12px; border-radius:12px;
+   cursor:pointer; font-weight:600;
+@@ -89,7 +82,7 @@ body{
+   top:100%;
+   margin-top:6px;
+   background: #fff;
+-  border:1px solid var(--line);
++  border:1px solid var(--_odon-line);
+   border-radius:12px;
+   box-shadow: 0 12px 24px rgba(30,42,58,.12);
+   padding:6px;
+@@ -100,9 +93,9 @@ body{
+   z-index:20;
+ }
+ .dropdown-item{
+-  border:1px solid var(--line);
++  border:1px solid var(--_odon-line);
+   background: rgba(0,0,0,.04);
+-  color: var(--text);
++  color: var(--_odon-text);
+   padding:8px 10px;
+   border-radius:10px;
+   font-weight:600;
+@@ -122,17 +115,17 @@ body{
+ 
+ select{
+   appearance: none;
+-  border:1px solid var(--line);
++  border:1px solid var(--_odon-line);
+   background:rgba(59,123,255,.12);
+-  color:var(--text);
++  color:var(--_odon-text);
+   padding:8px 34px 8px 12px;
+   border-radius:12px;
+   font-weight:600;
+   min-width:220px;
+   cursor:pointer;
+   background-image:
+-    linear-gradient(45deg, transparent 50%, var(--text) 50%),
+-    linear-gradient(135deg, var(--text) 50%, transparent 50%);
++    linear-gradient(45deg, transparent 50%, var(--_odon-text) 50%),
++    linear-gradient(135deg, var(--_odon-text) 50%, transparent 50%);
+   background-position:
+     calc(100% - 18px) 52%,
+     calc(100% - 12px) 52%;
+@@ -160,20 +153,20 @@ select:focus{
+ }
+ .chart{
+   background: rgba(255,255,255,.9);
+-  border:1px solid var(--line);
++  border:1px solid var(--_odon-line);
+   border-radius:18px;
+   overflow:hidden;
+ }
+ .chart-header{
+   padding:12px 14px;
+-  border-bottom:1px solid var(--line);
++  border-bottom:1px solid var(--_odon-line);
+   display:flex;
+   align-items:center;
+   justify-content:space-between;
+   gap:12px;
+ }
+ .chart-title{font-weight:700}
+-.chart-hint{font-size:12px;color:var(--muted); margin-top:4px}
++.chart-hint{font-size:12px;color:var(--_odon-muted); margin-top:4px}
+ .chart-actions{
+   display:flex;
+   align-items:center;
+@@ -188,14 +181,14 @@ select:focus{
+   align-items:center;
+   gap:4px;
+   padding:4px;
+-  border:1px solid var(--line);
++  border:1px solid var(--_odon-line);
+   border-radius:999px;
+   background: rgba(0,0,0,.03);
+ }
+ .chart-mode-btn{
+   border:none;
+   background:transparent;
+-  color:var(--text);
++  color:var(--_odon-text);
+   padding:6px 14px;
+   border-radius:999px;
+   font-weight:600;
+@@ -204,12 +197,12 @@ select:focus{
+ }
+ .chart-mode-btn:hover{background: rgba(59,123,255,.14)}
+ .chart-mode-btn.is-active{
+-  background: var(--accent);
++  background: var(--_odon-accent);
+   color:#fff;
+ }
+-.chart-mode-btn.is-active:hover{background: var(--accent)}
++.chart-mode-btn.is-active:hover{background: var(--_odon-accent)}
+ /* Subtle-but-unmistakable chip; shown only while `.plan-mode` is active on
+-   the chart card (see below) — toggled via the `.hidden` class. */
++   the chart card (see below) — toggled via the `.odon-hidden` class. */
+ .plan-badge{
+   display:inline-flex;
+   align-items:center;
+@@ -219,13 +212,13 @@ select:focus{
+   font-weight:700;
+   letter-spacing:.4px;
+   background: rgba(59,123,255,.16);
+-  color: var(--accent);
++  color: var(--_odon-accent);
+   border:1px solid rgba(59,123,255,.4);
+ }
+ /* Plan-mode visual cue on the chart card itself, so it's always obvious
+    which chart (status vs. plan) is being edited. */
+ .chart.plan-mode{
+-  border-color: var(--accent);
++  border-color: var(--_odon-accent);
+   box-shadow: 0 0 0 2px rgba(59,123,255,.18);
+ }
+ 
+@@ -238,7 +231,7 @@ select:focus{
+   gap:6px;
+   margin-top:4px;
+   font-size:12px;
+-  color: var(--muted);
++  color: var(--_odon-muted);
+ }
+ .chart.plan-mode .proposed-legend{
+   display:flex;
+@@ -247,7 +240,7 @@ select:focus{
+   display:inline-block;
+   width:18px;
+   height:0;
+-  border-top:2px dashed var(--accent);
++  border-top:2px dashed var(--_odon-accent);
+ }
+ 
+ /* Task 4 (Arabic+Chinese sub-project): RTL UI (Arabic) keeps the chrome RTL,
+@@ -337,7 +330,7 @@ select:focus{
+ .tooth-label-cell:hover{color:rgba(30,42,58,1)}
+ .tooth-tile{
+   position:relative;
+-  border:1px solid var(--line);
++  border:1px solid var(--_odon-line);
+   border-radius:14px;
+   background: rgba(255,255,255,.7);
+   padding:2px;
+@@ -400,7 +393,7 @@ select:focus{
+ /* ── Focus-visible (keyboard a11y) ───────────── */
+ .tooth-tile:focus{outline:none}
+ .tooth-tile:focus-visible{
+-  outline: 2px solid var(--accent);
++  outline: 2px solid var(--_odon-accent);
+   outline-offset: 2px;
+   box-shadow: 0 0 0 3px rgba(59,123,255,.25);
+   z-index: 1;
+@@ -480,13 +473,13 @@ select:focus{
+      column 1, breaking the two-column layout. */
+   grid-column: 2;
+   background: rgba(255,255,255,.95);
+-  border:1px solid var(--line);
++  border:1px solid var(--_odon-line);
+   border-radius:18px;
+   overflow:hidden;
+ }
+ .panel-header{
+   padding:12px 14px;
+-  border-bottom:1px solid var(--line);
++  border-bottom:1px solid var(--_odon-line);
+ }
+ .select-actions{
+   display:flex;
+@@ -548,7 +541,7 @@ select:focus{
+   gap:8px;
+ }
+ .panel-title{font-weight:800}
+-.panel-subtitle{font-size:12px;color:var(--muted); margin-top:4px}
++.panel-subtitle{font-size:12px;color:var(--_odon-muted); margin-top:4px}
+ .pill{
+   display:inline-block;
+   background: rgba(18,185,129,.14);
+@@ -556,7 +549,7 @@ select:focus{
+   padding:2px 8px;
+   border-radius:999px;
+   font-weight:700;
+-  color: var(--text);
++  color: var(--_odon-text);
+ }
+ .warnings{margin-top:10px; display:flex; flex-direction:column; gap:8px}
+ .warning{
+@@ -568,7 +561,7 @@ select:focus{
+ .panel-body{padding:14px; display:flex; flex-direction:column; gap:12px; max-height: calc(100vh - 110px); overflow:auto}
+ .card{
+   background: rgba(255,255,255,.9);
+-  border:1px solid var(--line);
++  border:1px solid var(--_odon-line);
+   border-radius:16px;
+   padding:12px;
+ }
+@@ -579,9 +572,9 @@ select:focus{
+    the content element's class (e.g. the class-less #cariesChecks cross div). */
+ .card.collapsed > :not(.card-title-row){display:none}
+ .icon-btn{
+-  border:1px solid var(--line);
++  border:1px solid var(--_odon-line);
+   background: rgba(255,255,255,.7);
+-  color: var(--text);
++  color: var(--_odon-text);
+   border-radius:999px;
+   width:28px;
+   height:28px;
+@@ -601,7 +594,7 @@ select:focus{
+ }
+ .icon-btn-danger:hover{background: rgba(217,69,69,.15)}
+ .card-subtitle{font-weight:700; margin:6px 0}
+-.hint{font-size:12px;color:var(--muted); margin:6px 0 10px}
++.hint{font-size:12px;color:var(--_odon-muted); margin:6px 0 10px}
+ .row{display:flex; gap:10px; align-items:center; font-size:13px; padding:6px 2px}
+ .contact-row{margin-bottom:6px}
+ .bruxism-row{margin-top:6px; gap:8px}
+@@ -615,7 +608,7 @@ select:focus{
+ /* Calculus row always needs a gap above it (its preceding sibling is the
+    periapical-type .row, not an .inline-checks, so the rule above never matches). */
+ #calculusRow{margin-top:8px}
+-.inline-checks label{display:flex; gap:10px; align-items:center; font-size:13px; padding:6px 10px; border-radius:12px; border:1px solid var(--line); background: rgba(0,0,0,.02); cursor:pointer}
++.inline-checks label{display:flex; gap:10px; align-items:center; font-size:13px; padding:6px 10px; border-radius:12px; border:1px solid var(--_odon-line); background: rgba(0,0,0,.02); cursor:pointer}
+ .inline-checks label:hover{background: rgba(59,123,255,.06)}
+ .inline-checks input[type="checkbox"]{display:none}
+ .inline-checks label:has(input[type="checkbox"]:checked){
+@@ -623,7 +616,7 @@ select:focus{
+   border-color: rgba(18,185,129,.5);
+ }
+ .check-grid{display:grid; grid-template-columns: 1fr 1fr; gap:8px}
+-.check-grid label{display:flex; gap:10px; align-items:center; font-size:13px; padding:6px 8px; border-radius:12px; border:1px solid var(--line); background: rgba(0,0,0,.02); cursor:pointer}
++.check-grid label{display:flex; gap:10px; align-items:center; font-size:13px; padding:6px 8px; border-radius:12px; border:1px solid var(--_odon-line); background: rgba(0,0,0,.02); cursor:pointer}
+ .check-grid label:hover{background: rgba(59,123,255,.06)}
+ .check-grid input[type="checkbox"]{display:none}
+ .check-grid label:has(input[type="checkbox"]:checked){
+@@ -631,11 +624,11 @@ select:focus{
+   border-color: rgba(18,185,129,.5);
+ }
+ .surface-cross{display:grid; grid-template-columns:repeat(3,1fr); grid-template-rows:repeat(3,auto); gap:8px; max-width:340px; margin:4px auto}
+-.surface-cross .surface-cell{display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; text-align:center; padding:10px 6px; border-radius:14px; border:1px solid var(--line); background:rgba(0,0,0,.02); cursor:pointer}
++.surface-cross .surface-cell{display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; text-align:center; padding:10px 6px; border-radius:14px; border:1px solid var(--_odon-line); background:rgba(0,0,0,.02); cursor:pointer}
+ .surface-cross .surface-cell:hover{background:rgba(59,123,255,.06)}
+ .surface-cross .surface-cell input[type="checkbox"]{display:none}
+ .surface-cross .surface-cell .surf-letter{font-weight:700; font-size:18px; line-height:1}
+-.surface-cross .surface-cell .surf-name{font-size:11px; color:var(--muted)}
++.surface-cross .surface-cell .surf-name{font-size:11px; color:var(--_odon-muted)}
+ .surface-cross .surface-cell:has(input[type="checkbox"]:checked){background:rgba(18,185,129,.18); border-color:rgba(18,185,129,.5)}
+ .surface-cross .pos-buccal{grid-column:2; grid-row:1}
+ .surface-cross .pos-mesial{grid-column:1; grid-row:2}
+@@ -689,19 +682,19 @@ select:focus{
+ .surf-defect.has-defect i{background:#f5ff15; box-shadow:0 0 0 1px #2e3192}
+ 
+ /* Caries depth popup */
+-.odon-depth-popup{position:fixed; z-index:130; background:var(--panel); border:1px solid var(--line); border-radius:12px; box-shadow:0 12px 24px rgba(30,42,58,.18); padding:6px; display:flex; flex-direction:column; gap:4px; min-width:150px}
++.odon-depth-popup{position:fixed; z-index:130; background:var(--_odon-panel); border:1px solid var(--_odon-line); border-radius:12px; box-shadow:0 12px 24px rgba(30,42,58,.18); padding:6px; display:flex; flex-direction:column; gap:4px; min-width:150px}
+ /* SP16 Task 1: the filling-defect popup's option buttons live in a plain
+    `.odon-depth-group` wrapper div inside `.odon-depth-popup` — without this
+    rule they default to block flow but the <button>s themselves are
+    inline-block, so they wrap left-to-right instead of stacking. Stack them
+    vertically like every other option group in this popup family. */
+ .odon-depth-group{display:flex; flex-direction:column; gap:4px}
+-.odon-depth-option{border:1px solid var(--line); background:rgba(0,0,0,.04); color:var(--text); padding:8px 10px; border-radius:10px; font-weight:600; cursor:pointer; text-align:start; font-size:13px}
++.odon-depth-option{border:1px solid var(--_odon-line); background:rgba(0,0,0,.04); color:var(--_odon-text); padding:8px 10px; border-radius:10px; font-weight:600; cursor:pointer; text-align:start; font-size:13px}
+ .odon-depth-option:hover{background:rgba(59,123,255,.12)}
+-.odon-depth-option.is-active{border-color:var(--accent,#3b7bff); background:rgba(59,123,255,.16)}
+-.odon-depth-group-label{font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--muted,#7b8794); padding:6px 4px 2px}
++.odon-depth-option.is-active{border-color:var(--_odon-accent,#3b7bff); background:rgba(59,123,255,.16)}
++.odon-depth-group-label{font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--_odon-muted,#7b8794); padding:6px 4px 2px}
+ .odon-depth-group-label:first-child{padding-top:2px}
+-.odon-depth-title{font-size:12px; font-weight:800; color:var(--text); padding:2px 4px 6px; border-bottom:1px solid var(--line); margin-bottom:2px}
++.odon-depth-title{font-size:12px; font-weight:800; color:var(--_odon-text); padding:2px 4px 6px; border-bottom:1px solid var(--_odon-line); margin-bottom:2px}
+ .row input[type="checkbox"]{display:none}
+ /* Diagnoses card rows (DiagnosesCard) + perio case-diagnoses rows (PerioSidebar):
+    code-first name, then a compact action cluster (exclude toggle + delete ×).
+@@ -719,7 +712,7 @@ select:focus{
+ .dx-row .btn-icon{ padding:5px 8px; }
+ .dx-row .btn-icon svg{ width:16px; height:16px; display:block; }
+ .dx-delete{ font-size:16px; line-height:1; }
+-.dx-exclude{ color: var(--muted, #64748b); }
++.dx-exclude{ color: var(--_odon-muted, #64748b); }
+ .dx-exclude.is-active{ color:#b45309; background: rgba(180,83,9,.14); }
+ .dark .dx-exclude.is-active{ color:#fbbf24; background: rgba(251,191,36,.16); }
+ /* Case/regional diagnoses pop-up (CaseDiagnosesModal) — reuses the credits-modal
+@@ -729,7 +722,7 @@ select:focus{
+ .odon-casedx-body #caseDxAddSelect{ width:100%; margin-top:6px; }
+ .row:has(input[type="checkbox"]){
+   border-radius:12px;
+-  border:1px solid var(--line);
++  border:1px solid var(--_odon-line);
+   padding:6px 10px;
+   background: rgba(0,0,0,.02);
+   cursor:pointer;
+@@ -761,9 +754,9 @@ select:focus{
+   cursor:default;
+ }
+ .radio-list{display:flex; flex-direction:column; gap:8px}
+-.radio-list label{display:flex; gap:10px; align-items:center; font-size:13px; padding:6px 8px; border-radius:12px; border:1px solid var(--line); background: rgba(0,0,0,.02)}
++.radio-list label{display:flex; gap:10px; align-items:center; font-size:13px; padding:6px 8px; border-radius:12px; border:1px solid var(--_odon-line); background: rgba(0,0,0,.02)}
+ .radio-list label:hover{background: rgba(59,123,255,.06)}
+-.divider{height:1px;background:var(--line); margin:10px 0}
++.divider{height:1px;background:var(--_odon-line); margin:10px 0}
+ 
+ /* SP-perio P1 Task 2: minimal, deliberately plain 6-site PD/GM/BOP/SUP grid
+    (the polished clinical perio chart is a later sub-project). Two site-group
+@@ -772,18 +765,18 @@ select:focus{
+    the existing --line/--card/--text/--muted variables, which already flip
+    under .dark — no separate dark-mode block needed. */
+ .perio-block{margin-top:10px}
+-.perio-block-title{font-size:13px; font-weight:600; margin-bottom:6px; color:var(--text)}
++.perio-block-title{font-size:13px; font-weight:600; margin-bottom:6px; color:var(--_odon-text)}
+ .perio-grid{display:flex; flex-direction:column; gap:6px}
+ .perio-site-row{display:grid; grid-template-columns:repeat(3,1fr); gap:6px}
+-.perio-site-cell{display:flex; flex-direction:column; gap:3px; padding:6px; border:1px solid var(--line); border-radius:8px; background:rgba(0,0,0,.02)}
+-.perio-site-label{font-weight:700; text-align:center; font-size:12px; margin-bottom:2px; color:var(--text)}
++.perio-site-cell{display:flex; flex-direction:column; gap:3px; padding:6px; border:1px solid var(--_odon-line); border-radius:8px; background:rgba(0,0,0,.02)}
++.perio-site-label{font-weight:700; text-align:center; font-size:12px; margin-bottom:2px; color:var(--_odon-text)}
+ .perio-field{display:flex; justify-content:space-between; align-items:center; gap:4px; font-size:11px}
+-.perio-field span{color:var(--muted)}
+-.perio-field input[type="number"]{width:46px; font-size:11px; padding:2px 4px; border:1px solid var(--line); border-radius:4px; background:var(--card); color:var(--text)}
++.perio-field span{color:var(--_odon-muted)}
++.perio-field input[type="number"]{width:46px; font-size:11px; padding:2px 4px; border:1px solid var(--_odon-line); border-radius:4px; background:var(--_odon-card); color:var(--_odon-text)}
+ .perio-check{display:flex; align-items:center; gap:4px; font-size:11px}
+-.perio-check span{color:var(--muted)}
++.perio-check span{color:var(--_odon-muted)}
+ .perio-readout{margin-top:4px; font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-size:11px}
+-.hidden{display:none !important}
++.odon-hidden{display:none !important}
+ 
+ @media (max-width: 1100px){
+   .layout{grid-template-columns:1fr}
+@@ -796,15 +789,12 @@ select:focus{
+ 
+ /* ── Dark mode ────────────────────────────────── */
+ .dark{
+-  --bg: var(--odon-bg, #0f172a);
+-  --panel: var(--odon-panel, #1e293b);
+-  --card: var(--odon-card, #1e293b);
+-  --muted: var(--odon-muted, #94a3b8);
+-  --text: var(--odon-text, #f1f5f9);
+-  --line: var(--odon-line, #334155);
+-}
+-.dark body{
+-  background: var(--bg);
++  --_odon-bg: var(--odon-bg, #0f172a);
++  --_odon-panel: var(--odon-panel, #1e293b);
++  --_odon-card: var(--odon-card, #1e293b);
++  --_odon-muted: var(--odon-muted, #94a3b8);
++  --_odon-text: var(--odon-text, #f1f5f9);
++  --_odon-line: var(--odon-line, #334155);
+ }
+ .dark .topbar{
+   background: rgba(15,23,42,.92);
+@@ -836,8 +826,8 @@ select:focus{
+ .dark select{
+   background: rgba(96,165,250,.15);
+   background-image:
+-    linear-gradient(45deg, transparent 50%, var(--text) 50%),
+-    linear-gradient(135deg, var(--text) 50%, transparent 50%);
++    linear-gradient(45deg, transparent 50%, var(--_odon-text) 50%),
++    linear-gradient(135deg, var(--_odon-text) 50%, transparent 50%);
+   background-position:
+     calc(100% - 18px) 52%,
+     calc(100% - 12px) 52%;
+@@ -847,9 +837,9 @@ select:focus{
+ .dark .chart{background: rgba(30,41,59,.9)}
+ .dark .chart-mode-toggle{
+   background: rgba(255,255,255,.06);
+-  border-color: var(--line);
++  border-color: var(--_odon-line);
+ }
+-.dark .chart-mode-btn{color: var(--text)}
++.dark .chart-mode-btn{color: var(--_odon-text)}
+ .dark .chart-mode-btn:hover{background: rgba(96,165,250,.18)}
+ .dark .chart-mode-btn.is-active{
+   background: rgba(96,165,250,.45);
+@@ -865,7 +855,7 @@ select:focus{
+   border-color: rgba(96,165,250,.6);
+   box-shadow: 0 0 0 2px rgba(96,165,250,.28);
+ }
+-.dark .proposed-legend{color: var(--text)}
++.dark .proposed-legend{color: var(--_odon-text)}
+ .dark .proposed-legend-swatch{border-top-color: rgba(96,165,250,.85)}
+ .dark .tooth-label-cell{color: rgba(241,245,249,.6)}
+ .dark .tooth-label-cell:hover{color: rgba(241,245,249,1)}
+@@ -899,11 +889,11 @@ select:focus{
+ }
+ /* Dark note popover */
+ .dark .odon-note-backdrop{background: rgba(0,0,0,.55)}
+-.dark .odon-note-popover{background: var(--panel); box-shadow: 0 16px 48px rgba(0,0,0,.5)}
+-.dark .odon-note-textarea{background: rgba(255,255,255,.06); border-color: var(--line); color: var(--text)}
++.dark .odon-note-popover{background: var(--_odon-panel); box-shadow: 0 16px 48px rgba(0,0,0,.5)}
++.dark .odon-note-textarea{background: rgba(255,255,255,.06); border-color: var(--_odon-line); color: var(--_odon-text)}
+ .dark .odon-note-textarea:focus{box-shadow: 0 0 0 3px rgba(96,165,250,.2); border-color: rgba(96,165,250,.5)}
+ .dark .panel{background: rgba(30,41,59,.95)}
+-.dark .card{background: rgba(30,41,59,.8); border-color: var(--line)}
++.dark .card{background: rgba(30,41,59,.8); border-color: var(--_odon-line)}
+ .dark .icon-btn{background: rgba(30,41,59,.7)}
+ .dark .icon-btn:hover{background: rgba(96,165,250,.15)}
+ .dark .icon-btn-danger{
+@@ -936,10 +926,10 @@ select:focus{
+   width:36px;
+   height:36px;
+   padding:0;
+-  border:1px solid var(--line);
++  border:1px solid var(--_odon-line);
+   border-radius:12px;
+   background: rgba(0,0,0,.04);
+-  color:var(--text);
++  color:var(--_odon-text);
+   cursor:pointer;
+   transition: background .15s ease;
+ }
+@@ -953,7 +943,7 @@ select:focus{
+   align-items: center;
+   margin-inline-start: 3px;
+   vertical-align: middle;
+-  color: var(--text);
++  color: var(--_odon-text);
+ }
+ .tooth-note-icon svg{
+   width: 13px;
+@@ -968,8 +958,8 @@ select:focus{
+ }
+ .odon-note-popover{
+   position: relative;
+-  background: var(--panel, #fff);
+-  border: 1px solid var(--line);
++  background: var(--_odon-panel, #fff);
++  border: 1px solid var(--_odon-line);
+   border-radius: 16px;
+   box-shadow: 0 16px 48px rgba(0,0,0,.2);
+   padding: 14px;
+@@ -981,17 +971,17 @@ select:focus{
+   display: flex; align-items: center; justify-content: space-between;
+ }
+ .odon-note-title{
+-  font-weight: 700; font-size: 14px; color: var(--text);
++  font-weight: 700; font-size: 14px; color: var(--_odon-text);
+ }
+ .odon-note-textarea{
+   width: 100%;
+   min-height: 60px;
+-  border: 1px solid var(--line);
++  border: 1px solid var(--_odon-line);
+   border-radius: 10px;
+   padding: 8px 10px;
+   font-family: inherit;
+   font-size: 13px;
+-  color: var(--text);
++  color: var(--_odon-text);
+   background: rgba(0,0,0,.02);
+   resize: vertical;
+ }
+@@ -1001,7 +991,7 @@ select:focus{
+   border-color: rgba(59,123,255,.5);
+ }
+ .odon-note-textarea::placeholder{
+-  color: var(--muted);
++  color: var(--_odon-muted);
+ }
+ .odon-note-actions{
+   display: flex; gap: 8px;
+@@ -1037,8 +1027,8 @@ select:focus{
+ }
+ @keyframes odon-fade-in{ from{opacity:0} to{opacity:1} }
+ .odon-zoom-popover{
+-  background: var(--panel, #fff);
+-  border:1px solid var(--line);
++  background: var(--_odon-panel, #fff);
++  border:1px solid var(--_odon-line);
+   border-radius:20px;
+   box-shadow: 0 20px 60px rgba(0,0,0,.25);
+   padding:16px;
+@@ -1051,14 +1041,14 @@ select:focus{
+   display:flex; align-items:center; justify-content:space-between;
+ }
+ .odon-zoom-title{
+-  font-weight:800; font-size:16px; color:var(--text);
++  font-weight:800; font-size:16px; color:var(--_odon-text);
+ }
+ .odon-zoom-close{
+   width:32px; height:32px;
+-  border:1px solid var(--line);
++  border:1px solid var(--_odon-line);
+   border-radius:999px;
+   background: rgba(0,0,0,.04);
+-  color:var(--text);
++  color:var(--_odon-text);
+   font-size:18px; font-weight:700;
+   cursor:pointer;
+   display:flex; align-items:center; justify-content:center;
+@@ -1080,9 +1070,9 @@ select:focus{
+   width:100%;
+ }
+ .odon-zoom-btn{
+-  border:1px solid var(--line);
++  border:1px solid var(--_odon-line);
+   background: rgba(59,123,255,.08);
+-  color:var(--text);
++  color:var(--_odon-text);
+   padding:10px 8px;
+   border-radius:12px;
+   font-weight:600;
+@@ -1106,8 +1096,8 @@ select:focus{
+ .odon-ctx-menu{
+   position:fixed;
+   z-index:110;
+-  background: var(--panel, #fff);
+-  border:1px solid var(--line);
++  background: var(--_odon-panel, #fff);
++  border:1px solid var(--_odon-line);
+   border-radius:16px;
+   box-shadow: 0 12px 40px rgba(0,0,0,.2);
+   padding:6px;
+@@ -1117,9 +1107,9 @@ select:focus{
+ }
+ @keyframes odon-ctx-pop{ from{opacity:0;transform:scale(.95)} to{opacity:1;transform:scale(1)} }
+ .odon-ctx-item{
+-  border:1px solid var(--line);
++  border:1px solid var(--_odon-line);
+   background: rgba(0,0,0,.02);
+-  color:var(--text);
++  color:var(--_odon-text);
+   padding:10px 14px;
+   border-radius:12px;
+   font-weight:600;
+@@ -1130,18 +1120,18 @@ select:focus{
+ .odon-ctx-item:hover{background: rgba(59,123,255,.1)}
+ .odon-ctx-item.danger{color:#b83a3a}
+ .odon-ctx-item.danger:hover{background: rgba(217,69,69,.12)}
+-.odon-ctx-divider{height:1px;background:var(--line);margin:2px 0}
++.odon-ctx-divider{height:1px;background:var(--_odon-line);margin:2px 0}
+ 
+ /* Dark mode overrides for touch UI */
+ .dark .odon-zoom-overlay{background: rgba(0,0,0,.6)}
+-.dark .odon-zoom-popover{background: var(--panel); box-shadow: 0 20px 60px rgba(0,0,0,.5)}
++.dark .odon-zoom-popover{background: var(--_odon-panel); box-shadow: 0 20px 60px rgba(0,0,0,.5)}
+ .dark .odon-zoom-close{background: rgba(255,255,255,.06)}
+ .dark .odon-zoom-close:hover{background: rgba(248,113,113,.15); color:#f87171}
+ .dark .odon-zoom-btn{background: rgba(96,165,250,.1)}
+ .dark .odon-zoom-btn:hover{background: rgba(96,165,250,.2)}
+ .dark .odon-zoom-btn.active{background: rgba(52,211,153,.18); border-color: rgba(52,211,153,.4)}
+ .dark .odon-zoom-btn.danger{background: rgba(248,113,113,.1); border-color: rgba(248,113,113,.25); color:#f87171}
+-.dark .odon-ctx-menu{background: var(--panel); box-shadow: 0 12px 40px rgba(0,0,0,.5)}
++.dark .odon-ctx-menu{background: var(--_odon-panel); box-shadow: 0 12px 40px rgba(0,0,0,.5)}
+ .dark .odon-ctx-item{background: rgba(255,255,255,.04)}
+ .dark .odon-ctx-item:hover{background: rgba(96,165,250,.12)}
+ .dark .odon-ctx-item.danger{color:#f87171}
+@@ -1183,12 +1173,12 @@ select:focus{
+   justify-content:center;
+   gap:8px;
+   padding:8px 10px;
+-  border-bottom:1px solid var(--line);
++  border-bottom:1px solid var(--_odon-line);
+ }
+ .odon-arch-toggle .odon-arch-btn{
+-  border:1px solid var(--line);
++  border:1px solid var(--_odon-line);
+   background: rgba(0,0,0,.04);
+-  color:var(--text);
++  color:var(--_odon-text);
+   padding:8px 20px;
+   border-radius:12px;
+   font-weight:700;
+@@ -1212,26 +1202,26 @@ select:focus{
+ }
+ 
+ .odon-export-overlay{position:fixed; inset:0; z-index:130; display:flex; align-items:center; justify-content:center; background:rgba(20,28,40,.55); backdrop-filter:blur(4px)}
+-.odon-export-card{background:var(--panel); border-radius:18px; box-shadow:0 20px 60px rgba(30,42,58,.25); padding:28px 40px; text-align:center; min-width:240px}
+-.odon-export-title{font-weight:600; font-size:14px; color:var(--muted); margin-bottom:8px}
+-.odon-export-pct{font-weight:800; font-size:40px; line-height:1; color:var(--text)}
+-.odon-export-phase{font-size:12px; color:var(--muted); margin-top:8px}
++.odon-export-card{background:var(--_odon-panel); border-radius:18px; box-shadow:0 20px 60px rgba(30,42,58,.25); padding:28px 40px; text-align:center; min-width:240px}
++.odon-export-title{font-weight:600; font-size:14px; color:var(--_odon-muted); margin-bottom:8px}
++.odon-export-pct{font-weight:800; font-size:40px; line-height:1; color:var(--_odon-text)}
++.odon-export-phase{font-size:12px; color:var(--_odon-muted); margin-top:8px}
+ .odon-tour-backdrop{position:fixed; inset:0; z-index:140; background:rgba(20,28,40,.45)}
+-.odon-tour-highlight{position:fixed; z-index:141; border:3px solid var(--accent,#3b7bff); border-radius:12px; box-shadow:0 0 0 9999px rgba(20,28,40,.45); pointer-events:none; transition:all .15s ease}
+-.odon-tour-card{position:fixed; z-index:142; background:var(--panel); border-radius:16px; box-shadow:0 16px 48px rgba(30,42,58,.25); padding:18px 20px; width:300px}
++.odon-tour-highlight{position:fixed; z-index:141; border:3px solid var(--_odon-accent,#3b7bff); border-radius:12px; box-shadow:0 0 0 9999px rgba(20,28,40,.45); pointer-events:none; transition:all .15s ease}
++.odon-tour-card{position:fixed; z-index:142; background:var(--_odon-panel); border-radius:16px; box-shadow:0 16px 48px rgba(30,42,58,.25); padding:18px 20px; width:300px}
+ .odon-tour-card-center{top:50%; left:50%; transform:translate(-50%,-50%)}
+-.odon-tour-counter{font-size:11px; color:var(--muted); margin-bottom:6px}
+-.odon-tour-title{font-weight:700; font-size:16px; margin-bottom:6px; color:var(--text)}
+-.odon-tour-text{font-size:13px; color:var(--muted); margin-bottom:14px}
++.odon-tour-counter{font-size:11px; color:var(--_odon-muted); margin-bottom:6px}
++.odon-tour-title{font-weight:700; font-size:16px; margin-bottom:6px; color:var(--_odon-text)}
++.odon-tour-text{font-size:13px; color:var(--_odon-muted); margin-bottom:14px}
+ .odon-tour-actions{display:flex; gap:8px; justify-content:flex-end}
+-.odon-tour-btn{border:1px solid var(--line); background:rgba(0,0,0,.04); color:var(--text); padding:6px 12px; border-radius:10px; font-weight:600; cursor:pointer}
++.odon-tour-btn{border:1px solid var(--_odon-line); background:rgba(0,0,0,.04); color:var(--_odon-text); padding:6px 12px; border-radius:10px; font-weight:600; cursor:pointer}
+ .odon-tour-btn:disabled{opacity:.4; cursor:default}
+ .odon-tour-skip{margin-right:auto; background:transparent}
+ .odon-tour-next{background:rgba(59,123,255,.18); border-color:rgba(59,123,255,.45)}
+ .caries-deep path, .caries-deep circle, .caries-deep ellipse { stroke: #b3261e; stroke-width: .5px; }
+ .settings-menu{min-width:200px}
+-.settings-group-label{font-size:11px; color:var(--muted); font-weight:700; padding:4px 8px 2px}
+-.settings-sep{height:1px; background:var(--line); margin:6px 4px}
++.settings-group-label{font-size:11px; color:var(--_odon-muted); font-weight:700; padding:4px 8px 2px}
++.settings-sep{height:1px; background:var(--_odon-line); margin:6px 4px}
+ .surf-depth.icdas{flex-direction:row; gap:0; padding:0; min-width:15px; height:15px; align-items:center; justify-content:center; border-radius:50%; font-size:10px; font-weight:800; color:#fff; background:#b3261e}
+ .surf-depth.icdas[data-depth="surface"]{background:#e6a23c}
+ .surf-depth.icdas[data-depth="dentin"]{background:#d9663d}
+@@ -1253,26 +1243,26 @@ select:focus{
+ /* Tooth information panel — its own card below (outside) the dental chart box */
+ .tooth-info{margin-top:0}
+ .tooth-info-overview{margin:0 0 10px; font-weight:600}
+-.tooth-info-list{margin:0 0 6px; font-size:13px; color:var(--muted)}
++.tooth-info-list{margin:0 0 6px; font-size:13px; color:var(--_odon-muted)}
+ .tooth-info-line{margin:6px 0 0; font-size:13px; line-height:1.5}
+ .tooth-info-heading{font-weight:700}
+-.tooth-info-empty{color:var(--muted); font-style:italic}
++.tooth-info-empty{color:var(--_odon-muted); font-style:italic}
+ /* 2.2.3 (round 2): grouped dentition table in the tooth-info panel. Tooth
+    numbers are coloured by status: content = bold accent, problem = bold-italic
+    red, empty = muted. Mirrors the PDF report's dentition table. */
+ .tooth-info-table-wrap{margin:0 0 8px; overflow-x:auto}
+-.tooth-info-table{border-collapse:collapse; width:100%; font-size:12px; line-height:1.4; color:var(--text)}
+-.tooth-info-table th,.tooth-info-table td{border:1px solid var(--line); padding:3px 6px; text-align:left; vertical-align:top}
+-.tooth-info-table thead th{background:rgba(59,123,255,.12); color:var(--text); font-weight:700; font-size:11px; white-space:nowrap}
+-.tooth-info-table tbody th{background:rgba(59,123,255,.08); color:var(--text); font-weight:700; white-space:nowrap}
++.tooth-info-table{border-collapse:collapse; width:100%; font-size:12px; line-height:1.4; color:var(--_odon-text)}
++.tooth-info-table th,.tooth-info-table td{border:1px solid var(--_odon-line); padding:3px 6px; text-align:left; vertical-align:top}
++.tooth-info-table thead th{background:rgba(59,123,255,.12); color:var(--_odon-text); font-weight:700; font-size:11px; white-space:nowrap}
++.tooth-info-table tbody th{background:rgba(59,123,255,.08); color:var(--_odon-text); font-weight:700; white-space:nowrap}
+ .tooth-info-table tbody tr:nth-child(even) td{background:rgba(127,127,127,.08)}
+ .tooth-cell{white-space:nowrap}
+-.tooth-cell-content{font-weight:700; color:var(--accent)}
++.tooth-cell-content{font-weight:700; color:var(--_odon-accent)}
+ /* Problem red — a lighter tone in dark mode so it stays legible on the dark bg. */
+ .tooth-cell-problem{font-weight:700; font-style:italic; color:#c62f2f}
+ .dark .tooth-cell-problem{color:#ff8080}
+-.tooth-cell-empty{color:var(--muted)}
+-.tooth-info-table-legend{margin:4px 0 0; font-size:11px; font-style:italic; color:var(--muted); line-height:1.4}
++.tooth-cell-empty{color:var(--_odon-muted)}
++.tooth-info-table-legend{margin:4px 0 0; font-size:11px; font-style:italic; color:var(--_odon-muted); line-height:1.4}
+ .tooth-info-notes{margin:6px 0 0; font-size:13px; line-height:1.5}
+ .tooth-info-note-item{margin:2px 0 0 12px}
+ /* R2-B Task 2: "What changes" box — a tinted panel that visually separates
+@@ -1307,8 +1297,8 @@ select:focus{
+   display: flex; flex-direction: column;
+   width: min(640px, 96vw);
+   max-height: min(84vh, 720px);
+-  background: var(--panel, #fff);
+-  border: 1px solid var(--line);
++  background: var(--_odon-panel, #fff);
++  border: 1px solid var(--_odon-line);
+   border-radius: 18px;
+   box-shadow: 0 24px 64px rgba(20,28,40,.30);
+   overflow: hidden;
+@@ -1317,16 +1307,16 @@ select:focus{
+ .odon-settings-header{
+   display: flex; align-items: center; justify-content: space-between;
+   padding: 16px 18px;
+-  border-bottom: 1px solid var(--line);
++  border-bottom: 1px solid var(--_odon-line);
+ }
+ .odon-settings-title{
+-  margin: 0; font-size: 16px; font-weight: 700; color: var(--text);
++  margin: 0; font-size: 16px; font-weight: 700; color: var(--_odon-text);
+ }
+ .odon-settings-close{
+   display: inline-flex; align-items: center; justify-content: center;
+   width: 32px; height: 32px;
+-  border: 1px solid var(--line); border-radius: 10px;
+-  background: rgba(0,0,0,.04); color: var(--text);
++  border: 1px solid var(--_odon-line); border-radius: 10px;
++  background: rgba(0,0,0,.04); color: var(--_odon-text);
+   cursor: pointer;
+ }
+ .odon-settings-close:hover{ background: rgba(0,0,0,.08); }
+@@ -1340,24 +1330,24 @@ select:focus{
+   display: flex; flex-direction: column; gap: 2px;
+   width: 168px; flex-shrink: 0;
+   padding: 12px 10px;
+-  border-right: 1px solid var(--line);
++  border-right: 1px solid var(--_odon-line);
+   overflow-y: auto;
+ }
+ .odon-settings-tab{
+   text-align: start;
+   padding: 8px 12px;
+   border: 1px solid transparent; border-radius: 10px;
+-  background: transparent; color: var(--muted);
++  background: transparent; color: var(--_odon-muted);
+   font-size: 13px; font-weight: 600; cursor: pointer;
+ }
+-.odon-settings-tab:hover{ background: rgba(0,0,0,.04); color: var(--text); }
++.odon-settings-tab:hover{ background: rgba(0,0,0,.04); color: var(--_odon-text); }
+ .odon-settings-tab.is-active{
+   background: rgba(59,123,255,.14);
+   border-color: rgba(59,123,255,.35);
+-  color: var(--text);
++  color: var(--_odon-text);
+ }
+ .odon-settings-tab.is-disabled{ opacity: .45; cursor: not-allowed; }
+-.odon-settings-tab.is-disabled:hover{ background: transparent; color: var(--muted); }
++.odon-settings-tab.is-disabled:hover{ background: transparent; color: var(--_odon-muted); }
+ .odon-settings-tab:focus-visible{
+   outline: none; box-shadow: 0 0 0 3px rgba(59,123,255,.30);
+ }
+@@ -1369,7 +1359,7 @@ select:focus{
+ }
+ .odon-settings-group-title{
+   font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+-  color: var(--muted); margin: 4px 0 -2px;
++  color: var(--_odon-muted); margin: 4px 0 -2px;
+ }
+ .odon-settings-group-title:first-child{ margin-top: 0; }
+ .odon-settings-row{
+@@ -1379,24 +1369,24 @@ select:focus{
+ .odon-settings-row-disabled{ opacity: .6; }
+ .odon-settings-row-text{ min-width: 0; flex: 1; }
+ .odon-settings-row-label{
+-  font-size: 13px; font-weight: 700; color: var(--text);
++  font-size: 13px; font-weight: 700; color: var(--_odon-text);
+ }
+ .odon-settings-row-desc{
+-  margin-top: 3px; font-size: 12px; line-height: 1.45; color: var(--muted);
++  margin-top: 3px; font-size: 12px; line-height: 1.45; color: var(--_odon-muted);
+ }
+ .odon-settings-row-control{ flex-shrink: 0; }
+ .odon-settings-badge{
+   display: inline-block; margin-inline-start: 6px;
+   padding: 1px 7px; border-radius: 999px;
+-  background: rgba(59,123,255,.14); color: var(--accent, #3b7bff);
++  background: rgba(59,123,255,.14); color: var(--_odon-accent, #3b7bff);
+   font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em;
+   vertical-align: middle;
+ }
+ .odon-settings-select{
+   min-width: 150px;
+   padding: 6px 10px;
+-  border: 1px solid var(--line); border-radius: 10px;
+-  background: var(--panel, #fff); color: var(--text);
++  border: 1px solid var(--_odon-line); border-radius: 10px;
++  background: var(--_odon-panel, #fff); color: var(--_odon-text);
+   font-size: 13px; font-family: inherit;
+ }
+ .odon-settings-select:focus-visible{
+@@ -1406,14 +1396,14 @@ select:focus{
+ /* Round 2 (Stage 7): intro note at the top of the Export Settings tab. */
+ .odon-settings-note{
+   margin: 0 0 10px; padding: 8px 12px; border-radius: 10px;
+-  background: rgba(59,123,255,.10); color: var(--text);
++  background: rgba(59,123,255,.10); color: var(--_odon-text);
+   font-size: 12px; line-height: 1.45;
+ }
+ .odon-settings-input{
+   min-width: 150px;
+   padding: 6px 10px;
+-  border: 1px solid var(--line); border-radius: 10px;
+-  background: var(--panel, #fff); color: var(--text);
++  border: 1px solid var(--_odon-line); border-radius: 10px;
++  background: var(--_odon-panel, #fff); color: var(--_odon-text);
+   font-size: 13px; font-family: inherit;
+ }
+ .odon-settings-input[type="color"]{ min-width: 52px; width: 52px; padding: 2px; height: 32px; cursor: pointer; }
+@@ -1424,8 +1414,8 @@ select:focus{
+ .odon-settings-textarea{
+   min-width: 240px; max-width: 100%; width: 240px; resize: vertical;
+   padding: 6px 10px;
+-  border: 1px solid var(--line); border-radius: 10px;
+-  background: var(--panel, #fff); color: var(--text);
++  border: 1px solid var(--_odon-line); border-radius: 10px;
++  background: var(--_odon-panel, #fff); color: var(--_odon-text);
+   font-size: 12px; font-family: inherit; line-height: 1.4;
+ }
+ .odon-settings-textarea:disabled{ opacity: .5; cursor: not-allowed; }
+@@ -1451,7 +1441,7 @@ select:focus{
+   transition: transform .15s ease;
+ }
+ .odon-settings-switch input:checked + .odon-settings-switch-track{
+-  background: var(--accent, #3b7bff);
++  background: var(--_odon-accent, #3b7bff);
+ }
+ .odon-settings-switch input:checked + .odon-settings-switch-track::after{
+   transform: translateX(18px);
+@@ -1467,7 +1457,7 @@ select:focus{
+   .odon-settings-body{ flex-direction: column; }
+   .odon-settings-tabs{
+     flex-direction: row; width: auto;
+-    border-right: none; border-bottom: 1px solid var(--line);
++    border-right: none; border-bottom: 1px solid var(--_odon-line);
+     overflow-x: auto;
+   }
+ }
+@@ -1489,21 +1479,21 @@ select:focus{
+   display: flex; flex-direction: column; gap: 18px;
+   width: min(420px, 96vw);
+   padding: 22px 22px 18px;
+-  background: var(--panel, #fff);
+-  border: 1px solid var(--line);
++  background: var(--_odon-panel, #fff);
++  border: 1px solid var(--_odon-line);
+   border-radius: 16px;
+   box-shadow: 0 24px 64px rgba(20,28,40,.30);
+   animation: odon-ctx-pop .12s ease;
+ }
+ .odon-confirm-message{
+-  margin: 0; font-size: 14px; line-height: 1.5; color: var(--text);
++  margin: 0; font-size: 14px; line-height: 1.5; color: var(--_odon-text);
+ }
+ .odon-confirm-actions{
+   display: flex; justify-content: flex-end; gap: 10px;
+ }
+ .odon-confirm-btn{
+   padding: 8px 16px;
+-  border: 1px solid var(--line); border-radius: 10px;
++  border: 1px solid var(--_odon-line); border-radius: 10px;
+   font-size: 14px; font-weight: 600;
+   cursor: pointer;
+ }
+@@ -1511,7 +1501,7 @@ select:focus{
+   outline: none; box-shadow: 0 0 0 3px rgba(59,123,255,.35);
+ }
+ .odon-confirm-cancel{
+-  background: rgba(0,0,0,.04); color: var(--text);
++  background: rgba(0,0,0,.04); color: var(--_odon-text);
+ }
+ .odon-confirm-cancel:hover{ background: rgba(0,0,0,.08); }
+ .odon-confirm-accept{
+@@ -1528,31 +1518,31 @@ select:focus{
+   display: flex; flex-direction: column; gap: 14px;
+   width: min(520px, 96vw); max-height: 88vh;
+   padding: 22px 22px 20px;
+-  background: var(--panel, #fff);
+-  border: 1px solid var(--line);
++  background: var(--_odon-panel, #fff);
++  border: 1px solid var(--_odon-line);
+   border-radius: 16px;
+   box-shadow: 0 24px 64px rgba(20,28,40,.30);
+   animation: odon-ctx-pop .12s ease;
+ }
+ .odon-credits-title{
+   margin: 0; padding-right: 40px;
+-  font-size: 18px; font-weight: 700; color: var(--text);
++  font-size: 18px; font-weight: 700; color: var(--_odon-text);
+ }
+ .odon-credits-body{
+   display: flex; flex-direction: column; gap: 16px;
+   overflow-y: auto; padding-right: 2px;
+ }
+ .odon-credits-intro{
+-  margin: 0; font-size: 14px; line-height: 1.55; color: var(--text);
++  margin: 0; font-size: 14px; line-height: 1.55; color: var(--_odon-text);
+ }
+ .odon-credits-section{ display: flex; flex-direction: column; gap: 8px; }
+ .odon-credits-heading{
+   margin: 0; font-size: 12px; font-weight: 700; text-transform: uppercase;
+-  letter-spacing: .04em; color: var(--muted, #6b7280);
++  letter-spacing: .04em; color: var(--_odon-muted, #6b7280);
+ }
+ .odon-credits-list{ margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
+-.odon-credits-list li{ font-size: 14px; line-height: 1.45; color: var(--text); }
+-.odon-credits-desc{ display: block; color: var(--muted, #6b7280); }
++.odon-credits-list li{ font-size: 14px; line-height: 1.45; color: var(--_odon-text); }
++.odon-credits-desc{ display: block; color: var(--_odon-muted, #6b7280); }
+ .odon-credits-libs{
+   margin: 0; padding: 0; list-style: none;
+   display: flex; flex-wrap: wrap; gap: 8px;
+@@ -1563,19 +1553,19 @@ select:focus{
+ }
+ .odon-credits-link:hover{ text-decoration: underline; }
+ .odon-credits-welcome{
+-  margin: 0; font-size: 13px; line-height: 1.5; color: var(--muted, #6b7280);
++  margin: 0; font-size: 13px; line-height: 1.5; color: var(--_odon-muted, #6b7280);
+ }
+ .odon-credits-star{
+   align-self: flex-start;
+   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+   min-height: 40px; margin-top: 4px; padding: 8px 14px;
+-  border: 1px solid var(--line); border-radius: 8px;
+-  background: transparent; color: var(--text);
++  border: 1px solid var(--_odon-line); border-radius: 8px;
++  background: transparent; color: var(--_odon-text);
+   font-size: 14px; font-weight: 600; text-decoration: none;
+   transition: background-color .12s ease, border-color .12s ease;
+ }
+ .odon-credits-star svg{ opacity: .75; }
+-.odon-credits-star:hover{ background: rgba(0,0,0,.05); border-color: var(--text); }
++.odon-credits-star:hover{ background: rgba(0,0,0,.05); border-color: var(--_odon-text); }
+ .dark .odon-credits-star:hover{ background: rgba(255,255,255,.08); }
+ .odon-credits-star:focus-visible{ outline: none; box-shadow: 0 0 0 3px rgba(59,123,255,.35); }
+ 
+@@ -1596,8 +1586,8 @@ select:focus{
+   display: flex; flex-direction: column;
+   width: min(960px, 96vw);
+   max-height: min(90vh, 800px);
+-  background: var(--panel, #fff);
+-  border: 1px solid var(--line);
++  background: var(--_odon-panel, #fff);
++  border: 1px solid var(--_odon-line);
+   border-radius: 18px;
+   box-shadow: 0 24px 64px rgba(20,28,40,.30);
+   overflow: hidden;
+@@ -1606,16 +1596,16 @@ select:focus{
+ .perio-overlay-header{
+   display: flex; align-items: center; justify-content: space-between;
+   padding: 16px 18px;
+-  border-bottom: 1px solid var(--line);
++  border-bottom: 1px solid var(--_odon-line);
+ }
+ .perio-overlay-title{
+-  margin: 0; font-size: 16px; font-weight: 700; color: var(--text);
++  margin: 0; font-size: 16px; font-weight: 700; color: var(--_odon-text);
+ }
+ .perio-overlay-close{
+   display: inline-flex; align-items: center; justify-content: center;
+   width: 32px; height: 32px;
+-  border: 1px solid var(--line); border-radius: 10px;
+-  background: rgba(0,0,0,.04); color: var(--text);
++  border: 1px solid var(--_odon-line); border-radius: 10px;
++  background: rgba(0,0,0,.04); color: var(--_odon-text);
+   cursor: pointer;
+ }
+ .perio-overlay-close:hover{ background: rgba(0,0,0,.08); }
+@@ -1643,14 +1633,14 @@ select:focus{
+   flex: 0 0 auto;
+   display: flex; flex-wrap: wrap; gap: 14px;
+   padding: 10px 12px;
+-  border: 1px solid var(--line); border-radius: 10px;
++  border: 1px solid var(--_odon-line); border-radius: 10px;
+   background: rgba(0,0,0,.02);
+   position: sticky; top: 0; z-index: 3;
+ }
+ .dark .perio-fullgrid-summary{ background: rgba(255,255,255,.04); }
+ .perio-fullgrid-summary-item{ display: flex; align-items: baseline; gap: 6px; font-size: 12px; }
+-.perio-fullgrid-summary-label{ color: var(--muted); }
+-.perio-fullgrid-summary-value{ font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
++.perio-fullgrid-summary-label{ color: var(--_odon-muted); }
++.perio-fullgrid-summary-value{ font-weight: 700; color: var(--_odon-text); font-variant-numeric: tabular-nums; }
+ 
+ /* UI-1 Task 2: `<PerioSidebar/>` — the three titled cards (whole-mouth
+    summary / "Páciens adatok" case metadata / 2017 classification, the last
+@@ -1664,16 +1654,16 @@ select:focus{
+ .perio-summary-card,
+ .case-meta-panel{
+   background: rgba(255,255,255,.9);
+-  border: 1px solid var(--line);
++  border: 1px solid var(--_odon-line);
+   border-radius: 16px;
+ }
+ .dark .perio-summary-card,
+ .dark .case-meta-panel{
+   background: rgba(30,41,59,.8);
+-  border-color: var(--line);
++  border-color: var(--_odon-line);
+ }
+ .perio-summary-card{ padding: 12px; }
+-.perio-summary-card-title{ font-weight: 800; margin-bottom: 10px; color: var(--text); }
++.perio-summary-card-title{ font-weight: 800; margin-bottom: 10px; color: var(--_odon-text); }
+ .perio-summary-card .perio-fullgrid-summary{
+   /* Reset the P2 full-grid overlay's sticky header treatment — inside this
+      titled card the summary bar is plain content, not a sticky toolbar. */
+@@ -1690,7 +1680,7 @@ select:focus{
+ .case-meta-panel-title{
+   display: flex; align-items: center; justify-content: space-between; gap: 8px;
+   padding: 12px;
+-  font-weight: 800; color: var(--text);
++  font-weight: 800; color: var(--_odon-text);
+   cursor: pointer;
+   list-style: none;
+   user-select: none;
+@@ -1699,8 +1689,8 @@ select:focus{
+ .case-meta-panel-title::after{
+   content: "";
+   width: 8px; height: 8px; flex-shrink: 0;
+-  border-right: 2px solid var(--muted);
+-  border-bottom: 2px solid var(--muted);
++  border-right: 2px solid var(--_odon-muted);
++  border-bottom: 2px solid var(--_odon-muted);
+   transform: rotate(-45deg);
+   transition: transform .15s ease;
+ }
+@@ -1712,7 +1702,7 @@ select:focus{
+ }
+ .case-meta-panel-body{
+   padding: 2px 12px 14px;
+-  border-top: 1px solid var(--line);
++  border-top: 1px solid var(--_odon-line);
+   display: flex; flex-direction: column;
+ }
+ .case-meta-row{
+@@ -1723,15 +1713,15 @@ select:focus{
+   padding-top: 10px;
+ }
+ .case-meta-row:first-child{ padding-top: 12px; }
+-.case-meta-row-label{ font-size: 13px; font-weight: 600; color: var(--text); }
++.case-meta-row-label{ font-size: 13px; font-weight: 600; color: var(--_odon-text); }
+ .case-meta-row-disabled{ opacity: .55; }
+-.case-meta-row-disabled .case-meta-row-label{ color: var(--muted); }
++.case-meta-row-disabled .case-meta-row-label{ color: var(--_odon-muted); }
+ .case-meta-input,
+ .case-meta-select{
+   justify-self: start;
+   padding: 6px 10px;
+-  border: 1px solid var(--line); border-radius: 10px;
+-  background: var(--panel, #fff); color: var(--text);
++  border: 1px solid var(--_odon-line); border-radius: 10px;
++  background: var(--_odon-panel, #fff); color: var(--_odon-text);
+   font-size: 13px; font-family: inherit;
+ }
+ .case-meta-input:focus-visible,
+@@ -1744,8 +1734,8 @@ select:focus{
+ .case-meta-panel-subheading{
+   margin-top: 10px;
+   padding-top: 12px;
+-  border-top: 1px solid var(--line);
+-  font-weight: 800; font-size: 13px; color: var(--text);
++  border-top: 1px solid var(--_odon-line);
++  font-weight: 800; font-size: 13px; color: var(--_odon-text);
+ }
+ .perio-class-row{
+   display: grid;
+@@ -1755,9 +1745,9 @@ select:focus{
+   row-gap: 6px;
+   padding-top: 10px;
+ }
+-.perio-class-row-label{ font-size: 13px; font-weight: 600; color: var(--text); }
++.perio-class-row-label{ font-size: 13px; font-weight: 600; color: var(--_odon-text); }
+ .perio-class-derived{
+-  font-size: 12px; color: var(--muted); font-style: italic;
++  font-size: 12px; color: var(--_odon-muted); font-style: italic;
+   justify-self: start;
+ }
+ /* The override <select> drops to its own full-width line so its long
+@@ -1882,9 +1872,9 @@ select:focus{
+   flex-wrap: wrap;
+ }
+ .perio-overlay-switch-btn{
+-  border: 1px solid var(--line);
+-  background: var(--card, #fff);
+-  color: var(--text);
++  border: 1px solid var(--_odon-line);
++  background: var(--_odon-card, #fff);
++  color: var(--_odon-text);
+   border-radius: 999px;
+   padding: 3px 10px;
+   font-size: 12px;
+@@ -1892,18 +1882,18 @@ select:focus{
+   cursor: pointer;
+   line-height: 1.4;
+ }
+-.perio-overlay-switch-btn:hover{ border-color: var(--accent, #3b82f6); }
++.perio-overlay-switch-btn:hover{ border-color: var(--_odon-accent, #3b82f6); }
+ .perio-overlay-switch-btn.is-active{
+-  background: var(--accent, #3b82f6);
+-  border-color: var(--accent, #3b82f6);
++  background: var(--_odon-accent, #3b82f6);
++  border-color: var(--_odon-accent, #3b82f6);
+   color: #fff;
+ }
+-.perio-overlay-switch-btn:focus-visible{ outline: 2px solid var(--accent, #3b82f6); outline-offset: 1px; }
++.perio-overlay-switch-btn:focus-visible{ outline: 2px solid var(--_odon-accent, #3b82f6); outline-offset: 1px; }
+ .perio-overlay-readout{
+   margin-inline-start: 6px;
+   font-size: 12px;
+   font-weight: 700;
+-  color: var(--text);
++  color: var(--_odon-text);
+   font-variant-numeric: tabular-nums;
+ }
+ .dark .perio-overlay-switch-btn{ background: rgba(255,255,255,.04); }
+@@ -1945,14 +1935,14 @@ select:focus{
+ .perio-fullgrid-scroll{
+   flex: 1 1 auto;
+   overflow: auto;
+-  border: 1px solid var(--line); border-radius: 10px;
++  border: 1px solid var(--_odon-line); border-radius: 10px;
+ }
+ .perio-fullgrid-arch{
+   display: grid;
+   align-items: stretch;
+ }
+ .perio-fullgrid-arch + .perio-fullgrid-arch{
+-  border-top: 2px solid var(--line);
++  border-top: 2px solid var(--_odon-line);
+ }
+ /* UI-1 Task 3: the column widened (`ROW_LABEL_WIDTH` 132 -> 220,
+    PerioChart.tsx) to fit full row-label names instead of truncating them.
+@@ -1964,10 +1954,10 @@ select:focus{
+   position: sticky; left: 0; z-index: 2;
+   display: flex; align-items: center; gap: 6px;
+   padding: 6px 10px;
+-  font-size: 11px; font-weight: 600; color: var(--muted);
+-  background: var(--panel);
+-  border-bottom: 1px solid var(--line);
+-  border-right: 1px solid var(--line);
++  font-size: 11px; font-weight: 600; color: var(--_odon-muted);
++  background: var(--_odon-panel);
++  border-bottom: 1px solid var(--_odon-line);
++  border-right: 1px solid var(--_odon-line);
+ }
+ .perio-fullgrid-row-label-text{
+   min-width: 0;
+@@ -1985,21 +1975,21 @@ select:focus{
+   display: inline-flex; align-items: center; justify-content: center;
+   width: 14px; height: 14px;
+   border-radius: 50%;
+-  border: 1px solid var(--muted, #7b8794);
++  border: 1px solid var(--_odon-muted, #7b8794);
+   background: transparent;
+-  color: var(--muted, #7b8794);
++  color: var(--_odon-muted, #7b8794);
+   font-size: 9px; font-weight: 700; font-style: italic; line-height: 1;
+   padding: 0;
+   cursor: pointer;
+ }
+ .perio-info-btn:hover{
+-  border-color: var(--accent, #3b7bff);
+-  color: var(--accent, #3b7bff);
++  border-color: var(--_odon-accent, #3b7bff);
++  color: var(--_odon-accent, #3b7bff);
+ }
+ .perio-info-btn:focus-visible{
+   outline: none;
+-  border-color: var(--accent, #3b7bff);
+-  color: var(--accent, #3b7bff);
++  border-color: var(--_odon-accent, #3b7bff);
++  color: var(--_odon-accent, #3b7bff);
+   box-shadow: 0 0 0 2px rgba(59,123,255,.35);
+ }
+ /* Layered above the perio-overlay dialog (z-index 160) so it is never hidden
+@@ -2009,8 +1999,8 @@ select:focus{
+ .perio-info-popover{
+   position: fixed; z-index: 165;
+   max-width: 280px;
+-  background: var(--panel);
+-  border: 1px solid var(--line);
++  background: var(--_odon-panel);
++  border: 1px solid var(--_odon-line);
+   border-radius: 10px;
+   box-shadow: 0 12px 24px rgba(30,42,58,.18);
+   padding: 10px 12px;
+@@ -2018,15 +2008,15 @@ select:focus{
+ .perio-info-popover-text{
+   margin: 0;
+   font-size: 12px; line-height: 1.5;
+-  color: var(--text);
++  color: var(--_odon-text);
+ }
+ .perio-fullgrid-header-cell{
+   position: sticky; top: 0; z-index: 1;
+   display: flex; align-items: center; justify-content: center;
+   padding: 6px 4px;
+-  font-size: 12px; font-weight: 700; color: var(--text);
+-  background: var(--panel);
+-  border-bottom: 1px solid var(--line);
++  font-size: 12px; font-weight: 700; color: var(--_odon-text);
++  background: var(--_odon-panel);
++  border-bottom: 1px solid var(--_odon-line);
+ }
+ .perio-fullgrid-arch .perio-fullgrid-row-label:first-child,
+ .perio-fullgrid-header-cell + .perio-fullgrid-header-cell:first-of-type{
+@@ -2041,8 +2031,8 @@ select:focus{
+    whole grid scrolls horizontally in `.perio-fullgrid-scroll`. */
+ .perio-fullgrid-graphic-cell{
+   display: block; overflow: hidden; line-height: 0;
+-  border-bottom: 1px solid var(--line);
+-  border-left: 1px solid var(--line);
++  border-bottom: 1px solid var(--_odon-line);
++  border-left: 1px solid var(--_odon-line);
+ }
+ .perio-fullgrid-graphic-cell .perio-tooth-arch{ display: block; }
+ /* UI-3a Task 2: the band-orientation legend row sitting between the buccal
+@@ -2054,10 +2044,10 @@ select:focus{
+   gap: 8px;
+   padding: 4px 10px;
+   font-size: 13px; font-weight: 700; letter-spacing: .01em;
+-  color: var(--text);
+-  background: var(--panel);
+-  border-bottom: 1px solid var(--line);
+-  border-left: 1px solid var(--line);
++  color: var(--_odon-text);
++  background: var(--_odon-panel);
++  border-bottom: 1px solid var(--_odon-line);
++  border-left: 1px solid var(--_odon-line);
+ }
+ .perio-fullgrid-band-label-buccal,
+ .perio-fullgrid-band-label-lingual{
+@@ -2079,8 +2069,8 @@ select:focus{
+      goes straight to bigger, more tappable PD/GM/CAL cells — horizontal
+      padding here stays untouched since the site tiles absorb the growth. */
+   padding: 3px 1px;
+-  border-bottom: 1px solid var(--line);
+-  border-left: 1px solid var(--line);
++  border-bottom: 1px solid var(--_odon-line);
++  border-left: 1px solid var(--_odon-line);
+ }
+ /* UI-1 Task 3b: the site group now stretches to fill its (now dynamically
+    scaled, see `applyArchColumns`/`computeFillScale` in PerioChart.tsx) cell
+@@ -2101,8 +2091,8 @@ select:focus{
+   flex: 1 1 0; width: 100%; min-width: 0; box-sizing: border-box;
+   font-size: 10px; text-align: center;
+   padding: 3px 0;
+-  border: 1px solid var(--line); border-radius: 4px;
+-  background: var(--card); color: var(--text);
++  border: 1px solid var(--_odon-line); border-radius: 4px;
++  background: var(--_odon-card); color: var(--_odon-text);
+   -moz-appearance: textfield;
+ }
+ /* Hide the native number spinners — the compact tooth-aligned columns have no
+@@ -2122,7 +2112,7 @@ select:focus{
+   flex: 1 1 0; width: 100%; min-width: 0; box-sizing: border-box;
+   display: inline-flex; align-items: center; justify-content: center;
+   font-size: 10px; font-weight: 700; font-variant-numeric: tabular-nums;
+-  color: var(--muted);
++  color: var(--_odon-muted);
+ }
+ /* KG (keratinized gingiva width) reuses `.perio-fullgrid-input` but is a
+    SINGLE per-tooth cell (no site subdivision, no sitegroup), so it keeps its
+@@ -2137,8 +2127,8 @@ select:focus{
+   width: 100%;
+   font-size: 11px;
+   padding: 3px 4px;
+-  border: 1px solid var(--line); border-radius: 4px;
+-  background: var(--card); color: var(--text);
++  border: 1px solid var(--_odon-line); border-radius: 4px;
++  background: var(--_odon-card); color: var(--_odon-text);
+ }
+ 
+ /* SP-perio P2b Task 4: furcation cycle control — a compact square button per
+@@ -2151,13 +2141,13 @@ select:focus{
+   width: 20px; height: 20px; padding: 0;
+   font-size: 10px; font-weight: 700; line-height: 1;
+   text-align: center; cursor: pointer;
+-  border: 1px solid var(--line); border-radius: 4px;
+-  background: var(--card); color: var(--muted);
++  border: 1px solid var(--_odon-line); border-radius: 4px;
++  background: var(--_odon-card); color: var(--_odon-muted);
+   font-variant-numeric: tabular-nums;
+ }
+ .perio-fullgrid-furc[data-grade]:not([data-grade="0"]){
+-  border-color: var(--accent, #c0392b);
+-  background: var(--accent, #c0392b); color: #fff;
++  border-color: var(--_odon-accent, #c0392b);
++  background: var(--_odon-accent, #c0392b); color: #fff;
+ }
+ .perio-fullgrid-furc:disabled{ opacity: .45; cursor: not-allowed; }
+ 
+@@ -2199,21 +2189,21 @@ select:focus{
+ .perio-fullgrid-plaque{
+   width: 16px; height: 16px; padding: 0;
+   cursor: pointer; font-size: 0;
+-  border: 1px solid var(--line); border-radius: 3px;
+-  background: var(--card);
++  border: 1px solid var(--_odon-line); border-radius: 3px;
++  background: var(--_odon-card);
+ }
+ .perio-fullgrid-plaque[data-present="1"]{
+-  background: var(--accent, #2d6cdf);
+-  border-color: var(--accent, #2d6cdf);
++  background: var(--_odon-accent, #2d6cdf);
++  border-color: var(--_odon-accent, #2d6cdf);
+ }
+ .perio-fullgrid-plaque:disabled{ opacity: .45; cursor: not-allowed; }
+ .dark .perio-fullgrid-furc,
+ .dark .perio-fullgrid-plaque{ background: rgba(255,255,255,.04); }
+ .dark .perio-fullgrid-furc[data-grade]:not([data-grade="0"]){
+-  background: var(--accent, #e05252); border-color: var(--accent, #e05252);
++  background: var(--_odon-accent, #e05252); border-color: var(--_odon-accent, #e05252);
+ }
+ .dark .perio-fullgrid-plaque[data-present="1"]{
+-  background: var(--accent, #4d8bff); border-color: var(--accent, #4d8bff);
++  background: var(--_odon-accent, #4d8bff); border-color: var(--_odon-accent, #4d8bff);
+ }
+ 
+ /* 2.2.3 (round 2): faint surface-letter watermark (M/D/B/L) behind each
+@@ -2257,16 +2247,16 @@ select:focus{
+   width: 30px; height: 24px; padding: 0;
+   font-size: 9px; font-weight: 700; line-height: 1;
+   text-align: center; cursor: pointer;
+-  border: 1px solid var(--line); border-radius: 4px;
+-  background: var(--card); color: var(--muted);
++  border: 1px solid var(--_odon-line); border-radius: 4px;
++  background: var(--_odon-card); color: var(--_odon-muted);
+   font-variant-numeric: tabular-nums;
+ }
+ .perio-fullgrid-cej[data-value]:not([data-value="none"]),
+ .perio-fullgrid-rootconcavity[data-value]:not([data-value="none"]),
+ .perio-fullgrid-gt[data-value]:not([data-value="unknown"]),
+ .perio-fullgrid-miller[data-value]:not([data-value="none"]){
+-  border-color: var(--accent, #c0392b);
+-  background: var(--accent, #c0392b); color: #fff;
++  border-color: var(--_odon-accent, #c0392b);
++  background: var(--_odon-accent, #c0392b); color: #fff;
+ }
+ .perio-fullgrid-cej:disabled,
+ .perio-fullgrid-rootconcavity:disabled,
+@@ -2280,7 +2270,7 @@ select:focus{
+ .dark .perio-fullgrid-rootconcavity[data-value]:not([data-value="none"]),
+ .dark .perio-fullgrid-gt[data-value]:not([data-value="unknown"]),
+ .dark .perio-fullgrid-miller[data-value]:not([data-value="none"]){
+-  background: var(--accent, #e05252); border-color: var(--accent, #e05252);
++  background: var(--_odon-accent, #e05252); border-color: var(--_odon-accent, #e05252);
+ }
+ 
+ /* UI-1 Task 3: responsive scale-down for the enlarged touch-target cells
+diff --git a/src/main.tsx b/src/main.tsx
+index 5f4cb88..b445990 100644
+--- a/src/main.tsx
++++ b/src/main.tsx
+@@ -5,6 +5,7 @@ import React from "react";
+ import { createRoot } from "react-dom/client";
+ import App from "./App";
+ import "./index.css";
++import "./demo.css";
+ 
+ const rootEl = document.getElementById("root");
+ if (rootEl) {
+diff --git a/src/odontogram.ts b/src/odontogram.ts
+index afa52f2..e754667 100644
+--- a/src/odontogram.ts
++++ b/src/odontogram.ts
+@@ -491,7 +491,7 @@ function revertActiveControls(): void {
+ /** Sync the `Status | Plan` toggle in the chart-header with the
+  *  current `chartMode` — `.is-active` on whichever of #chartModeStatus /
+  *  #chartModePlan matches, `.plan-mode` on the chart card (`.chart`, the
+- *  visual border/tint cue), and the "TERV/PLAN" badge's `.hidden` class.
++ *  visual border/tint cue), and the "TERV/PLAN" badge's `.odon-hidden` class.
+  *  Every lookup is null-safe: `setChartMode()` (and therefore this function)
+  *  is exercised by module-state tests (e.g. r2a-dual-state.test.ts) with no
+  *  DOM mounted at all, so a missing toggle/card/badge must be a silent no-op,
+@@ -511,7 +511,7 @@ function syncChartModeUi(): void {
+     planBtn.setAttribute("aria-selected", String(isPlan));
+   }
+   if(chartCard) chartCard.classList.toggle("plan-mode", isPlan);
+-  if(badge) badge.classList.toggle("hidden", !isPlan);
++  if(badge) badge.classList.toggle("odon-hidden", !isPlan);
+ }
+ 
+ /**
+@@ -939,11 +939,11 @@ function onCardToggleClick(e: Any){
+   const icon = btn.querySelector(".toggle-icon");
+   const cardId = BTN_TO_CARD_ID[btn.id];
+   if(!cardId) return; // not a recognised card toggle button
+-  // Controls card collapses its actions container (uses `.hidden`), not the card.
++  // Controls card collapses its actions container (uses `.odon-hidden`), not the card.
+   if(btn.id === "btnToggleControlsCard"){
+     const actions = document.querySelector("#controlsActions");
+     if(!actions) return;
+-    const hidden = actions.classList.toggle("hidden");
++    const hidden = actions.classList.toggle("odon-hidden");
+     applyToggleA11y(btn, "panel.controls", hidden);
+     if(icon) icon.textContent = hidden ? "+" : "−";
+     collapsedCards.controls = hidden;
+@@ -989,7 +989,7 @@ function onGlobalToggleClick(e: Any){
+  *  inflammation" for that case — see the `#lbl-inflammation` relabel in
+  *  syncControlsFromState()). MUST run AFTER syncPeriImplantVisibility() in
+  *  syncControlsFromState(): that function's implant-only loop also toggles
+- *  this same checkbox's `.hidden` class, so whichever of the two runs last
++ *  this same checkbox's `.odon-hidden` class, so whichever of the two runs last
+  *  wins for the inflammation checkbox specifically — this one is the
+  *  authoritative, final word. */
+ function syncInflammationModVisibility(container: Element | null, toothSelection: Any): void {
+@@ -1003,7 +1003,7 @@ function syncInflammationModVisibility(container: Element | null, toothSelection
+   // carves that value back out of the "present" bucket to keep it visible.
+   const hidden = toothSelection === "implant"
+     || (isToothPresent(toothSelection) && !isExtraction(toothSelection));
+-  if(inflLabel) inflLabel.classList.toggle("hidden", hidden);
++  if(inflLabel) inflLabel.classList.toggle("odon-hidden", hidden);
+ }
+ 
+ /** TEST-ONLY: apply `syncInflammationModVisibility` to a hand-built
+@@ -1027,12 +1027,12 @@ export function __syncInflammationModVisibilityForTest(container: Element, tooth
+  *  say for `inflammation`. */
+ function syncPeriImplantVisibility(periImplantRow: Element | null, modsContainer: Element | null, toothSelection: Any): void {
+   const isImplantSel = toothSelection === "implant";
+-  if(periImplantRow) periImplantRow.classList.toggle("hidden", !isImplantSel);
++  if(periImplantRow) periImplantRow.classList.toggle("odon-hidden", !isImplantSel);
+   if(!modsContainer) return;
+   for(const val of ["parodontal", "inflammation"]){
+     const chk = modsContainer.querySelector(`input[value="${val}"]`) as HTMLInputElement | null;
+     const lbl = chk ? (chk.closest("label") || chk.parentElement) : null;
+-    if(lbl) lbl.classList.toggle("hidden", isImplantSel);
++    if(lbl) lbl.classList.toggle("odon-hidden", isImplantSel);
+   }
+ }
+ 
+@@ -2071,7 +2071,7 @@ export type RootPerioOption = { value: string; label: string };
+ export type RootPerioOptGroup = { label: string; options: RootPerioOption[] };
+ 
+ /** One `#modsChecks` checkbox's fully-resolved render state. `hiddenClass`
+- *  reproduces the `.hidden` class the sub-syncs toggled on the wrapping
++ *  reproduces the `.odon-hidden` class the sub-syncs toggled on the wrapping
+  *  `<label>`; `styleHidden` reproduces the `style.display:none` the
+  *  `setDisabled()`→`syncControlLabelVisibility()` path applied. */
+ export type ActiveRootPerioMod = {
+@@ -4321,20 +4321,20 @@ export function computeFillingDefectSummaryLine(
+ /** Toggle the wear (edge + cervical, shared wearDetailLevel) and discoloration
+  *  (own discolorationDetailLevel) controls between their "complex" <select> and
+  *  "simple" checkbox presentation, and derive each checkbox's `.checked` from
+- *  the stored value. Non-collapsing: this ONLY flips `.hidden`/`.checked` — it
++ *  the stored value. Non-collapsing: this ONLY flips `.odon-hidden`/`.checked` — it
+  *  never mutates `state`, so switching levels back and forth cannot lose/rewrite
+  *  a stored value. A small standalone sync called from syncControlsFromState. */
+ function syncToothDetailControls(state: Any): void {
+   const wearSimple = getWearDetailLevel() === "simple";
+-  $("#wearEdgeSelectLabel").classList.toggle("hidden", wearSimple);
+-  $("#wearEdgeToggleLabel").classList.toggle("hidden", !wearSimple);
+-  $("#wearCervicalSelectLabel").classList.toggle("hidden", wearSimple);
+-  $("#wearCervicalToggleLabel").classList.toggle("hidden", !wearSimple);
++  $("#wearEdgeSelectLabel").classList.toggle("odon-hidden", wearSimple);
++  $("#wearEdgeToggleLabel").classList.toggle("odon-hidden", !wearSimple);
++  $("#wearCervicalSelectLabel").classList.toggle("odon-hidden", wearSimple);
++  $("#wearCervicalToggleLabel").classList.toggle("odon-hidden", !wearSimple);
+   ($("#wearEdgeToggle") as HTMLInputElement).checked = state.wearEdge !== "none";
+   ($("#wearCervicalToggle") as HTMLInputElement).checked = state.wearCervical !== "none";
+   const discoSimple = getDiscolorationDetailLevel() === "simple";
+-  $("#discolorationSelectLabel").classList.toggle("hidden", discoSimple);
+-  $("#discolorationToggleLabel").classList.toggle("hidden", !discoSimple);
++  $("#discolorationSelectLabel").classList.toggle("odon-hidden", discoSimple);
++  $("#discolorationToggleLabel").classList.toggle("odon-hidden", !discoSimple);
+   ($("#discolorationToggle") as HTMLInputElement).checked = state.discoloration !== "none";
+ }
+ 
+@@ -4364,7 +4364,7 @@ export function __syncToothDetailControlsForTest(state: Record<string, unknown>)
+ function syncPerioRow(state: Any, toothNo: Any = activeTooth): void {
+   const row = $("#perioRow");
+   const hidden = perioRowHidden(state);
+-  if(row) row.classList.toggle("hidden", hidden);
++  if(row) row.classList.toggle("odon-hidden", hidden);
+   if(hidden || toothNo == null) return;
+   const perio = getToothPerio(toothNo);
+   const cal = getToothCal(toothNo);
+@@ -4774,7 +4774,7 @@ function refreshToggleLabels(){
+   const controlsActions = $("#controlsActions");
+   const controlsToggle = $("#btnToggleControlsCard");
+   if(controlsActions && controlsToggle){
+-    applyToggleA11y(controlsToggle, "panel.controls", controlsActions.classList.contains("hidden"));
++    applyToggleA11y(controlsToggle, "panel.controls", controlsActions.classList.contains("odon-hidden"));
+   }
+   const cardConfig = [
+     { card: "#cariesSection", btn: "#btnToggleCariesCard", labelKey: "caries.title" },
+@@ -7918,7 +7918,7 @@ function wireControls(){
+   const controlsToggle = $("#btnToggleControlsCard");
+   const controlsActions = $("#controlsActions");
+   if(controlsToggle && controlsActions){
+-    applyToggleA11y(controlsToggle, "panel.controls", controlsActions.classList.contains("hidden"));
++    applyToggleA11y(controlsToggle, "panel.controls", controlsActions.classList.contains("odon-hidden"));
+   }
+   [
+     { card: "#cariesSection", btn: "#btnToggleCariesCard", labelKey: "caries.title" },
+diff --git a/src/surfaces/OdontogramChartSurface.tsx b/src/surfaces/OdontogramChartSurface.tsx
+index deb1492..c1de9ff 100644
+--- a/src/surfaces/OdontogramChartSurface.tsx
++++ b/src/surfaces/OdontogramChartSurface.tsx
+@@ -66,7 +66,7 @@ export default function OdontogramChartSurface() {
+               <div id="chartModeToggle" className="chart-mode-toggle" role="tablist">
+                 <button id="chartModeStatus" type="button" className="chart-mode-btn is-active" role="tab" aria-selected="true">{t("chartMode.status")}</button>
+                 <button id="chartModePlan" type="button" className="chart-mode-btn" role="tab" aria-selected="false">{t("chartMode.plan")}</button>
+-                <span id="chartModePlanBadge" className="plan-badge hidden">{t("chartMode.planBadge")}</span>
++                <span id="chartModePlanBadge" className="plan-badge odon-hidden">{t("chartMode.planBadge")}</span>
+               </div>
+             )}
+             {/* "dashed = proposed" legend. Always rendered — its visibility is
+diff --git a/src/surfaces/ToothControlsSurface.tsx b/src/surfaces/ToothControlsSurface.tsx
+index b100062..31fa9fb 100644
+--- a/src/surfaces/ToothControlsSurface.tsx
++++ b/src/surfaces/ToothControlsSurface.tsx
+@@ -65,7 +65,7 @@ export default function ToothControlsSurface() {
+           </div>
+ 
+           <div className="panel-body">
+-            <div className={showStatusCard ? "" : "hidden"}>
++            <div className={showStatusCard ? "" : "odon-hidden"}>
+               <section className="card" id="statusCard">
+                 <div className="card-title card-title-row">
+                   <span>{t("status.title")}</span>
+@@ -85,7 +85,7 @@ export default function ToothControlsSurface() {
+               <ToothDetailsCard />
+             </section>
+ 
+-            <div className={showOrthoCard ? "" : "hidden"}>
++            <div className={showOrthoCard ? "" : "odon-hidden"}>
+               <OrthodonticsCard />
+             </div>
+ 
+diff --git a/src/surfaces/cards/CariesCard.tsx b/src/surfaces/cards/CariesCard.tsx
+index d887890..5cacf42 100644
+--- a/src/surfaces/cards/CariesCard.tsx
++++ b/src/surfaces/cards/CariesCard.tsx
+@@ -48,7 +48,7 @@ export default function CariesCard() {
+   // immediately re-corrected.
+   useLayoutEffect(() => {
+     const section = hintRef.current?.closest("#cariesSection");
+-    section?.classList.toggle("hidden", !caries.cariesSectionVisible);
++    section?.classList.toggle("odon-hidden", !caries.cariesSectionVisible);
+   });
+ 
+   const cells: SurfaceCell[] = caries.surfaces.map((s) => ({
+@@ -84,7 +84,7 @@ export default function CariesCard() {
+   return (
+     <>
+       <div className="hint" ref={hintRef}>{t("caries.hint")}</div>
+-      <div id="cariesDepthRow" className={caries.cariesDepthVisible ? "row" : "row hidden"}>
++      <div id="cariesDepthRow" className={caries.cariesDepthVisible ? "row" : "row odon-hidden"}>
+         <span>{t("caries.depthLabel")}</span>
+         <select
+           id="cariesDepthSelect"
+@@ -112,7 +112,7 @@ export default function CariesCard() {
+           <span id="lbl-caries-subcrown">{caries.subcrownLabel}</span>
+         </label>
+       </div>
+-      <div id="rootCariesRow" className={caries.rootCariesVisible ? "row" : "row hidden"}>
++      <div id="rootCariesRow" className={caries.rootCariesVisible ? "row" : "row odon-hidden"}>
+         <span>{t("caries.rootLabel")}</span>
+         <select
+           id="rootCariesSelect"
+diff --git a/src/surfaces/cards/DiagnosesCard.tsx b/src/surfaces/cards/DiagnosesCard.tsx
+index 4a988ba..87ab15f 100644
+--- a/src/surfaces/cards/DiagnosesCard.tsx
++++ b/src/surfaces/cards/DiagnosesCard.tsx
+@@ -57,7 +57,7 @@ export default function DiagnosesCard() {
+   // to "card" is immediately re-corrected (mirrors CariesCard/RootPeriodontiumCard).
+   useLayoutEffect(() => {
+     const section = rowsRef.current?.closest("#diagnosesSection");
+-    section?.classList.toggle("hidden", !dx.visible);
++    section?.classList.toggle("odon-hidden", !dx.visible);
+   });
+ 
+   return (
+diff --git a/src/surfaces/cards/FillingsCard.tsx b/src/surfaces/cards/FillingsCard.tsx
+index 489b7fa..93f4a7f 100644
+--- a/src/surfaces/cards/FillingsCard.tsx
++++ b/src/surfaces/cards/FillingsCard.tsx
+@@ -58,7 +58,7 @@ export default function FillingsCard() {
+   // immediately re-corrected (mirrors CariesCard's #cariesSection layout effect).
+   useLayoutEffect(() => {
+     const section = rootRef.current?.closest("#fillingSection");
+-    section?.classList.toggle("hidden", !fillings.fillingSectionVisible);
++    section?.classList.toggle("odon-hidden", !fillings.fillingSectionVisible);
+   });
+ 
+   const cells: SurfaceCell[] = fillings.surfaces.map((s) => ({
+@@ -124,13 +124,13 @@ export default function FillingsCard() {
+       </div>
+       <div
+         id="fillingSurfaceChecks"
+-        className={[fillings.surfaceGridVisible ? null : "hidden", fillings.defectDisabled ? "defect-disabled" : null].filter(Boolean).join(" ")}
++        className={[fillings.surfaceGridVisible ? null : "odon-hidden", fillings.defectDisabled ? "defect-disabled" : null].filter(Boolean).join(" ")}
+       >
+         <SurfaceCross cells={cells} />
+       </div>
+       {/* "simple" complexity: one filled/not-filled toggle shown instead of the
+           5-surface grid (the simple/grid swap). */}
+-      <label id="fillingSimpleRow" className={fillings.simpleRowVisible ? "row fissure-row" : "row fissure-row hidden"}>
++      <label id="fillingSimpleRow" className={fillings.simpleRowVisible ? "row fissure-row" : "row fissure-row odon-hidden"}>
+         <input
+           type="checkbox"
+           id="fillingSimpleToggle"
+@@ -141,7 +141,7 @@ export default function FillingsCard() {
+       </label>
+       {/* When the filling-defect feature is on, a defect select applies a defect
+           to ALL filled surfaces (simple mode has no per-surface cells). */}
+-      <div id="fillingSimpleDefectRow" className={fillings.simpleDefectRowVisible ? "row" : "row hidden"}>
++      <div id="fillingSimpleDefectRow" className={fillings.simpleDefectRowVisible ? "row" : "row odon-hidden"}>
+         <span>{t("fillingDefect.label")}</span>
+         <select
+           id="fillingSimpleDefectSelect"
+@@ -153,7 +153,7 @@ export default function FillingsCard() {
+           ))}
+         </select>
+       </div>
+-      <label id="fissureSealingRow" className={fillings.fissureRowVisible ? "row fissure-row" : "row fissure-row hidden"}>
++      <label id="fissureSealingRow" className={fillings.fissureRowVisible ? "row fissure-row" : "row fissure-row odon-hidden"}>
+         <input
+           type="checkbox"
+           id="fissureSealing"
+@@ -162,8 +162,8 @@ export default function FillingsCard() {
+         />
+         <span>{t("filling.fissureSealing")}</span>
+       </label>
+-      <div id="fillingSubcariesSummary" className={fillings.subcariesSummary ? "hint" : "hint hidden"}>{fillings.subcariesSummary}</div>
+-      <div id="fillingDefectSummary" className={fillings.defectSummary ? "hint" : "hint hidden"}>{fillings.defectSummary}</div>
++      <div id="fillingSubcariesSummary" className={fillings.subcariesSummary ? "hint" : "hint odon-hidden"}>{fillings.subcariesSummary}</div>
++      <div id="fillingDefectSummary" className={fillings.defectSummary ? "hint" : "hint odon-hidden"}>{fillings.defectSummary}</div>
+     </>
+   );
+ }
+diff --git a/src/surfaces/cards/OrthodonticsCard.tsx b/src/surfaces/cards/OrthodonticsCard.tsx
+index c40e07c..5fc135e 100644
+--- a/src/surfaces/cards/OrthodonticsCard.tsx
++++ b/src/surfaces/cards/OrthodonticsCard.tsx
+@@ -37,7 +37,7 @@ export default function OrthodonticsCard() {
+   const rotation = ortho?.rotation ?? false;
+ 
+   return (
+-    <section id="orthoCard" className={hidden ? "card hidden" : "card"}>
++    <section id="orthoCard" className={hidden ? "card odon-hidden" : "card"}>
+       <div className="card-title card-title-row">
+         <span>{t("toothInfo.orthodontics")}</span>
+       </div>
+diff --git a/src/surfaces/cards/RootPeriodontiumCard.tsx b/src/surfaces/cards/RootPeriodontiumCard.tsx
+index b97af3e..99457ed 100644
+--- a/src/surfaces/cards/RootPeriodontiumCard.tsx
++++ b/src/surfaces/cards/RootPeriodontiumCard.tsx
+@@ -63,12 +63,12 @@ export default function RootPeriodontiumCard() {
+   // immediately re-corrected (mirrors CariesCard/FillingsCard).
+   useLayoutEffect(() => {
+     const section = rootRef.current?.closest("#rootPeriodontiumSection");
+-    section?.classList.toggle("hidden", !rp.sectionVisible);
++    section?.classList.toggle("odon-hidden", !rp.sectionVisible);
+   });
+ 
+   return (
+     <>
+-      <div id="rpRootBlock" ref={rootRef} className={rp.rootBlockVisible ? undefined : "hidden"}>
++      <div id="rpRootBlock" ref={rootRef} className={rp.rootBlockVisible ? undefined : "odon-hidden"}>
+         <div className="hint">{t("endo.hint")}</div>
+         <div id="pulpEndoRow" className="row">
+           <span>{t("pulpEndo.label")}</span>
+@@ -90,7 +90,7 @@ export default function RootPeriodontiumCard() {
+             ))}
+           </select>
+         </div>
+-        <div id="apicalDxRow" className={rp.apicalDxRowVisible ? "row" : "row hidden"}>
++        <div id="apicalDxRow" className={rp.apicalDxRowVisible ? "row" : "row odon-hidden"}>
+           <span>{t("apical.dxLabel")}</span>
+           <select
+             id="apicalDxSelect"
+@@ -103,7 +103,7 @@ export default function RootPeriodontiumCard() {
+             ))}
+           </select>
+         </div>
+-        <div id="periapicalTypeRow" className={rp.periapicalRowVisible ? "row" : "row hidden"}>
++        <div id="periapicalTypeRow" className={rp.periapicalRowVisible ? "row" : "row odon-hidden"}>
+           <span>{t("periapical.typeLabel")}</span>
+           <select
+             id="periapicalTypeSelect"
+@@ -115,7 +115,7 @@ export default function RootPeriodontiumCard() {
+             ))}
+           </select>
+         </div>
+-        <div id="resorptionRow" className={rp.resorptionRowVisible ? "row" : "row hidden"}>
++        <div id="resorptionRow" className={rp.resorptionRowVisible ? "row" : "row odon-hidden"}>
+           <span>{t("root.resorption")}</span>
+           <select
+             id="resorptionSelect"
+@@ -152,8 +152,8 @@ export default function RootPeriodontiumCard() {
+         </div>
+       </div>
+ 
+-      <div id="rpPerioBlock" className={rp.perioBlockVisible ? undefined : "hidden"}>
+-        <div id="mobilityRow" className={rp.mobilityRowVisible ? "row" : "row hidden"}>
++      <div id="rpPerioBlock" className={rp.perioBlockVisible ? undefined : "odon-hidden"}>
++        <div id="mobilityRow" className={rp.mobilityRowVisible ? "row" : "row odon-hidden"}>
+           <span>{t("inflammation.mobilityLabel")}</span>
+           <select
+             id="mobilitySelect"
+@@ -170,7 +170,7 @@ export default function RootPeriodontiumCard() {
+             IMPERATIVE (Tier 3 PR 3e carve-out): rendered as static empty
+             containers here, built by `buildPerioGrid` and synced by
+             `syncPerioRow` in the engine — exactly as before. */}
+-        <div id="perioRow" className={rp.perioRowVisible ? "perio-block" : "perio-block hidden"}>
++        <div id="perioRow" className={rp.perioRowVisible ? "perio-block" : "perio-block odon-hidden"}>
+           <div className="perio-block-title">{t("perio.title")}</div>
+           <div id="perioGrid" className="perio-grid"></div>
+           <div id="perioReadout" className="hint perio-readout"></div>
+@@ -179,7 +179,7 @@ export default function RootPeriodontiumCard() {
+           {rp.mods.map((m) => (
+             <label
+               key={m.value}
+-              className={m.hiddenClass ? "hidden" : undefined}
++              className={m.hiddenClass ? "odon-hidden" : undefined}
+               style={m.styleHidden ? { display: "none" } : undefined}
+             >
+               <input
+@@ -194,7 +194,7 @@ export default function RootPeriodontiumCard() {
+             </label>
+           ))}
+         </div>
+-        <div id="calculusRow" className={rp.calculusRowVisible ? "row inline-checks" : "row inline-checks hidden"}>
++        <div id="calculusRow" className={rp.calculusRowVisible ? "row inline-checks" : "row inline-checks odon-hidden"}>
+           <label>
+             <input
+               type="checkbox"
+@@ -205,7 +205,7 @@ export default function RootPeriodontiumCard() {
+             <span>{t("calculus.label")}</span>
+           </label>
+         </div>
+-        <div id="periImplantRow" className={rp.periImplantRowVisible ? "row" : "row hidden"}>
++        <div id="periImplantRow" className={rp.periImplantRowVisible ? "row" : "row odon-hidden"}>
+           <span>{t("periImplant.label")}</span>
+           <select
+             id="periImplantSelect"
+diff --git a/src/surfaces/cards/ToothDetailsCard.tsx b/src/surfaces/cards/ToothDetailsCard.tsx
+index 221e76d..b1f8309 100644
+--- a/src/surfaces/cards/ToothDetailsCard.tsx
++++ b/src/surfaces/cards/ToothDetailsCard.tsx
+@@ -69,7 +69,7 @@ export default function ToothDetailsCard() {
+   // getter resolved (mirrors the imperative appendChild reparent). Only ONE branch
+   // below is true per render, so exactly one instance mounts.
+   const extractionPlanRow = (
+-    <label id="extractionPlanRow" className={td.extractionPlanRowVisible ? "inline-check" : "inline-check hidden"}>
++    <label id="extractionPlanRow" className={td.extractionPlanRowVisible ? "inline-check" : "inline-check odon-hidden"}>
+       <input
+         type="checkbox"
+         id="extractionPlan"
+@@ -94,7 +94,7 @@ export default function ToothDetailsCard() {
+           ))}
+         </select>
+       </div>
+-      <div id="substrateRow" className={td.substrateRowVisible ? "row" : "row hidden"}>
++      <div id="substrateRow" className={td.substrateRowVisible ? "row" : "row odon-hidden"}>
+         <span>{t("substrate.label")}</span>
+         <select
+           id="substrateSelect"
+@@ -106,7 +106,7 @@ export default function ToothDetailsCard() {
+           ))}
+         </select>
+       </div>
+-      <label id="extractionRow" className={td.extractionRowVisible ? "row" : "row hidden"}>
++      <label id="extractionRow" className={td.extractionRowVisible ? "row" : "row odon-hidden"}>
+         <input
+           type="checkbox"
+           id="extractionWound"
+@@ -115,7 +115,7 @@ export default function ToothDetailsCard() {
+         />
+         <span>{t("tooth.extractionWound")}</span>
+       </label>
+-      <label id="missingClosedRow" className={td.missingClosedRowVisible ? "row" : "row hidden"}>
++      <label id="missingClosedRow" className={td.missingClosedRowVisible ? "row" : "row odon-hidden"}>
+         <input
+           type="checkbox"
+           id="missingClosed"
+@@ -124,7 +124,7 @@ export default function ToothDetailsCard() {
+         />
+         <span>{t("tooth.missingClosed")}</span>
+       </label>
+-      <div id="restorationRow" className={td.restorationRowVisible ? "row" : "row hidden"}>
++      <div id="restorationRow" className={td.restorationRowVisible ? "row" : "row odon-hidden"}>
+         <span>{t("restoration.label")}</span>
+         <select
+           id="restorationSelect"
+@@ -136,7 +136,7 @@ export default function ToothDetailsCard() {
+           ))}
+         </select>
+       </div>
+-      <label id="crownLeakageRow" className={td.crownLeakageRowVisible ? "row" : "row hidden"}>
++      <label id="crownLeakageRow" className={td.crownLeakageRowVisible ? "row" : "row odon-hidden"}>
+         <input
+           type="checkbox"
+           id="crownLeakage"
+@@ -145,7 +145,7 @@ export default function ToothDetailsCard() {
+         />
+         <span>{t("crownLeakage.label")}</span>
+       </label>
+-      <div id="brokenCrownRow" className={td.brokenCrownRowVisible ? "row inline-checks contact-row" : "row inline-checks contact-row hidden"}>
++      <div id="brokenCrownRow" className={td.brokenCrownRowVisible ? "row inline-checks contact-row" : "row inline-checks contact-row odon-hidden"}>
+         <label>
+           <input
+             type="checkbox"
+@@ -175,7 +175,7 @@ export default function ToothDetailsCard() {
+         </label>
+         {td.extractionPlanParent === "brokenCrownRow" && extractionPlanRow}
+       </div>
+-      <div id="contactPointRow" className={td.contactPointRowVisible ? "row inline-checks contact-row" : "row inline-checks contact-row hidden"}>
++      <div id="contactPointRow" className={td.contactPointRowVisible ? "row inline-checks contact-row" : "row inline-checks contact-row odon-hidden"}>
+         <label>
+           <input
+             type="checkbox"
+@@ -195,9 +195,9 @@ export default function ToothDetailsCard() {
+           <span>{t("tooth.contact.distalMissing")}</span>
+         </label>
+       </div>
+-      <div id="bruxismRow" className={td.bruxismRowVisible ? "inline-checks bruxism-row wear-stack" : "inline-checks bruxism-row wear-stack hidden"}>
++      <div id="bruxismRow" className={td.bruxismRowVisible ? "inline-checks bruxism-row wear-stack" : "inline-checks bruxism-row wear-stack odon-hidden"}>
+         <div id="wearEdgeRow" className="row">
+-          <label id="wearEdgeSelectLabel" className={td.wearSimple ? "hidden" : undefined}>
++          <label id="wearEdgeSelectLabel" className={td.wearSimple ? "odon-hidden" : undefined}>
+             <span>{t("tooth.bruxism.edgeWear")}</span>
+             <select
+               id="wearEdgeSelect"
+@@ -209,7 +209,7 @@ export default function ToothDetailsCard() {
+               ))}
+             </select>
+           </label>
+-          <label id="wearEdgeToggleLabel" className={td.wearSimple ? "inline-check" : "inline-check hidden"}>
++          <label id="wearEdgeToggleLabel" className={td.wearSimple ? "inline-check" : "inline-check odon-hidden"}>
+             <input
+               type="checkbox"
+               id="wearEdgeToggle"
+@@ -220,7 +220,7 @@ export default function ToothDetailsCard() {
+           </label>
+         </div>
+         <div id="wearCervicalRow" className="row">
+-          <label id="wearCervicalSelectLabel" className={td.wearSimple ? "hidden" : undefined}>
++          <label id="wearCervicalSelectLabel" className={td.wearSimple ? "odon-hidden" : undefined}>
+             <span>{t("tooth.bruxism.neckWear")}</span>
+             <select
+               id="wearCervicalSelect"
+@@ -232,7 +232,7 @@ export default function ToothDetailsCard() {
+               ))}
+             </select>
+           </label>
+-          <label id="wearCervicalToggleLabel" className={td.wearSimple ? "inline-check" : "inline-check hidden"}>
++          <label id="wearCervicalToggleLabel" className={td.wearSimple ? "inline-check" : "inline-check odon-hidden"}>
+             <input
+               type="checkbox"
+               id="wearCervicalToggle"
+@@ -244,8 +244,8 @@ export default function ToothDetailsCard() {
+         </div>
+         {td.extractionPlanParent === "bruxismRow" && extractionPlanRow}
+       </div>
+-      <div id="discolorationRow" className={td.discolorationRowVisible ? "row inline-checks" : "row inline-checks hidden"}>
+-        <label id="discolorationSelectLabel" className={td.discoSimple ? "hidden" : undefined}>
++      <div id="discolorationRow" className={td.discolorationRowVisible ? "row inline-checks" : "row inline-checks odon-hidden"}>
++        <label id="discolorationSelectLabel" className={td.discoSimple ? "odon-hidden" : undefined}>
+           <span>{t("discoloration.label")}</span>
+           <select
+             id="discolorationSelect"
+@@ -257,7 +257,7 @@ export default function ToothDetailsCard() {
+             ))}
+           </select>
+         </label>
+-        <label id="discolorationToggleLabel" className={td.discoSimple ? "inline-check" : "inline-check hidden"}>
++        <label id="discolorationToggleLabel" className={td.discoSimple ? "inline-check" : "inline-check odon-hidden"}>
+           <input
+             type="checkbox"
+             id="discolorationToggle"
+@@ -267,8 +267,8 @@ export default function ToothDetailsCard() {
+           <span>{t("discoloration.label")}</span>
+         </label>
+       </div>
+-      <div id="crownActionsRow" className={td.crownActionsRowVisible ? "row inline-checks bridge-actions-row" : "row inline-checks bridge-actions-row hidden"}>
+-        <label id="bridgePillarRow" className={td.bridgePillarRowVisible ? "inline-check" : "inline-check hidden"}>
++      <div id="crownActionsRow" className={td.crownActionsRowVisible ? "row inline-checks bridge-actions-row" : "row inline-checks bridge-actions-row odon-hidden"}>
++        <label id="bridgePillarRow" className={td.bridgePillarRowVisible ? "inline-check" : "inline-check odon-hidden"}>
+           <input
+             type="checkbox"
+             id="bridgePillar"
+@@ -279,7 +279,7 @@ export default function ToothDetailsCard() {
+         </label>
+         {td.extractionPlanParent === "crownActionsRow" && extractionPlanRow}
+       </div>
+-      <label id="crownReplaceRow" className={td.crownReplaceRowVisible ? "row" : "row hidden"}>
++      <label id="crownReplaceRow" className={td.crownReplaceRowVisible ? "row" : "row odon-hidden"}>
+         <input
+           type="checkbox"
+           id="crownReplace"
+@@ -288,7 +288,7 @@ export default function ToothDetailsCard() {
+         />
+         <span>{t("tooth.crownReplace")}</span>
+       </label>
+-      <label id="crownNeededRow" className={td.crownNeededRowVisible ? "row" : "row hidden"}>
++      <label id="crownNeededRow" className={td.crownNeededRowVisible ? "row" : "row odon-hidden"}>
+         <input
+           type="checkbox"
+           id="crownNeeded"
+diff --git a/tools/postcss-scope.js b/tools/postcss-scope.js
+new file mode 100644
+index 0000000..01c83fd
+--- /dev/null
++++ b/tools/postcss-scope.js
+@@ -0,0 +1,58 @@
++// Part of React Advanced Odontogram - https://github.com/ZoliQua/React-Advanced-Odontogram
++//
++// PostCSS plugin: keeps the odontogram stylesheet inside the odontogram.
++//
++// The stylesheet is written with short, readable selectors (`.btn`, `.card`,
++// `select`, `.row`…). Shipped as-is they would also style a host page's own
++// `.btn`/`.card`/`select`. This plugin appends a zero-specificity condition to
++// the subject of every selector so a rule only matches:
++//   - inside the component root (`.odontogram-root`),
++//   - inside the popups the engine appends to <body> (every one carries an
++//     `odon-*` class).
++// `:where()` adds no specificity, so the cascade between the library's own
++// rules is unchanged. Theme-variable rules (`:root`, `.dark`,
++// `.odontogram-root`) and @keyframes are left alone.
++import selectorParser from "postcss-selector-parser";
++
++export const ODONTOGRAM_SCOPE =
++  ':where(.odontogram-root, .odontogram-root *, [class*="odon-"], [class*="odon-"] *)';
++
++const LEGACY_PSEUDO_ELEMENTS = new Set([":before", ":after", ":first-line", ":first-letter"]);
++const UNSCOPED = /^(?::root|\.dark|\.odontogram-root|\.dark \.odontogram-root)$/;
++
++const scopeNode = selectorParser().astSync(ODONTOGRAM_SCOPE).first.first;
++
++function isPseudoElement(node) {
++  return node.type === "pseudo" && (node.value.startsWith("::") || LEGACY_PSEUDO_ELEMENTS.has(node.value.toLowerCase()));
++}
++
++const transform = selectorParser((selectors) => {
++  selectors.each((selector) => {
++    if (UNSCOPED.test(selector.toString().trim())) return;
++    let start = 0;
++    selector.nodes.forEach((node, i) => {
++      if (node.type === "combinator") start = i + 1;
++    });
++    const subject = selector.nodes.slice(start);
++    if (subject.length === 0) return;
++    const pseudoElement = subject.find(isPseudoElement);
++    if (pseudoElement) selector.insertBefore(pseudoElement, scopeNode.clone());
++    else selector.append(scopeNode.clone());
++  });
++});
++
++/** @param {{ include?: (file: string) => boolean }} [options] */
++export default function odontogramScope(options = {}) {
++  const include = options.include ?? ((file) => /[\\/]src[\\/]index\.css$/.test(file));
++  return {
++    postcssPlugin: "odontogram-scope",
++    Once(root) {
++      if (!include(root.source?.input?.file ?? "")) return;
++      root.walkRules((rule) => {
++        if (rule.parent?.type === "atrule" && /keyframes$/i.test(rule.parent.name)) return;
++        rule.selector = transform.processSync(rule.selector);
++      });
++    },
++  };
++}
++odontogramScope.postcss = true;
+diff --git a/vite.lib.config.ts b/vite.lib.config.ts
+index 64a0708..c831bf7 100644
+--- a/vite.lib.config.ts
++++ b/vite.lib.config.ts
+@@ -12,17 +12,36 @@
+ // sanitizer out of the box with zero extra installs, since sanitization runs
+ // unconditionally on every render, not behind an opt-in feature.
+ // vite-plugin-dts (rollupTypes) emits a single bundled dist/index.d.ts.
+-import { defineConfig } from 'vite'
++import { defineConfig, type Plugin } from 'vite'
+ import react from '@vitejs/plugin-react'
+ import dts from 'vite-plugin-dts'
+ import path from 'path'
+-import { readFileSync } from 'fs'
++import { readFileSync, writeFileSync } from 'fs'
+ 
+ const pkgVersion = JSON.parse(readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8')).version
+ 
++/**
++ * Emits `dist/style.layer.css` next to `dist/style.css`: the same rules inside
++ * `@layer odontogram`, for hosts that order their CSS with cascade layers
++ * (Tailwind CSS 4, for one). Unlayered CSS always beats layered CSS, so the
++ * plain stylesheet would override a layered host's utilities.
++ */
++function layeredStylesheet(): Plugin {
++  return {
++    name: 'odontogram-layered-stylesheet',
++    apply: 'build',
++    writeBundle(options) {
++      const dir = options.dir ?? path.resolve(__dirname, 'dist')
++      const css = readFileSync(path.join(dir, 'style.css'), 'utf-8')
++      writeFileSync(path.join(dir, 'style.layer.css'), `@layer odontogram{${css}}\n`)
++    },
++  }
++}
++
+ export default defineConfig({
+   plugins: [
+     react(),
++    layeredStylesheet(),
+     dts({
+       // One bundled dist/index.d.ts (via @microsoft/api-extractor) instead of a
+       // tree of per-file .d.ts — hides internal __*ForTest declarations and
+-- 
+2.43.0
+

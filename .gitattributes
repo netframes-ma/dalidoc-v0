@@ -1,0 +1,2 @@
+# Vendored build of React Advanced Odontogram (packages/react-advanced-odontogram/build.sh)
+packages/react-advanced-odontogram/dist/** linguist-generated=true -diff
