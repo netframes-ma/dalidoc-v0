@@ -2,14 +2,16 @@
 
 Next.js App Router front end for DaliDoc. The first module built is the
 **Schéma dentaire / odontogram workspace**, on top of
-[React Advanced Odontogram](https://github.com/ZoliQua/React-Advanced-Odontogram)
-(see `docs/features/odontogram.md` and ADR-0005).
+[React Advanced Odontogram](https://github.com/ZoliQua/React-Advanced-Odontogram),
+vendored with DaliDoc's patches in `packages/react-advanced-odontogram`
+(see `docs/features/odontogram.md` and ADR-0005). After rebuilding that
+package, refresh the copy here: `rm -rf node_modules/react-advanced-odontogram && npm install`.
 
 ## Run
 
 ```bash
 cd apps/web
-npm install        # also generates src/styles/vendor/odontogram.css
+npm install        # copies ../../packages/react-advanced-odontogram into node_modules
 npm run dev        # http://localhost:3000 → redirects to a demo patient
 ```
 
@@ -44,6 +46,5 @@ src/app                       routes: / → /patients/[patientId]/odontogram
 src/components                ui primitives, layout, shared components, providers
 src/features/dental-chart     the odontogram workspace (components, engine, hooks, lib, api)
 src/lib                       FDI, permissions, preferences, i18n, utils
-src/styles                    engine theme bridge (+ generated vendor stylesheet)
-scripts/scope-odontogram-css.mjs   adapts the engine's global stylesheet
+src/styles                    engine theme bridge (public --odon-* variables)
 ```

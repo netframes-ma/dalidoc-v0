@@ -46,6 +46,7 @@
     "docs/features/communication-whatsapp.md",
     "docs/features/odontogram.md",
     "docs/features/patients.md",
-    "docs/features/prescriptions.md"
+    "docs/features/prescriptions.md",
+    "packages/react-advanced-odontogram/README.md"
   ]
 }

@@ -33,6 +33,20 @@ export const BRAND_SWATCH: Record<Brand, string> = {
   slate: "#334155",
 };
 
+/**
+ * The brand's on-dark tone (--brand-on-dark in globals.css), as a hex the
+ * odontogram engine accepts for its selection ring — the chart sits on an ink
+ * panel in every theme.
+ */
+export const BRAND_ON_DARK: Record<Brand, string> = {
+  teal: "#22b8c9",
+  blue: "#60a5fa",
+  indigo: "#818cf8",
+  violet: "#a78bfa",
+  fuchsia: "#e879f9",
+  slate: "#cbd5e1",
+};
+
 function isBrand(value: unknown): value is Brand {
   return typeof value === "string" && (BRANDS as readonly string[]).includes(value);
 }

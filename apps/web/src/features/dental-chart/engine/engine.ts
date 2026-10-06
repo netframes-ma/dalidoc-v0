@@ -131,34 +131,29 @@ export const confirmDualState = {
   cancel: () => Odontogram.cancelDualStateConfirm(),
 };
 
-/* ── Selection ──────────────────────────────────────────────────────────────
- * 2.5.0 has no selection event or `getSelectedTeeth()` (added in 2.6.0), so
- * the selection is read from the tiles the engine marks with `.active`, and a
- * tooth is selected by clicking its tile — the same path a user takes.
- */
+/* ── Selection ────────────────────────────────────────────────────────────── */
 
-type MaybeSelection = { getSelectedTeeth?: () => number[] };
+/** Follow the selection: the selected teeth and the active tooth (the one the drawer shows). */
+export function onSelection(listener: (teeth: number[], active: number | null) => void): () => void {
+  listener(Odontogram.getSelectedTeeth(), Odontogram.getActiveTooth());
+  return Odontogram.onSelectionChange(listener);
+}
 
-export function selectedTeeth(root: ParentNode): number[] {
-  const api = Odontogram as unknown as MaybeSelection;
-  if (typeof api.getSelectedTeeth === "function") return api.getSelectedTeeth();
-  const teeth = Array.from(root.querySelectorAll<HTMLElement>(".tooth-tile.active[data-tooth]"), (el) =>
-    Number(el.dataset.tooth),
-  );
-  return Array.from(new Set(teeth));
+/** Select one tooth from DaliDoc (arch navigator, validation queue, plan rows) — works in read-only mode. */
+export function selectTooth(root: ParentNode | null, tooth: number | null): void {
+  Odontogram.selectTeeth(tooth === null ? [] : [tooth]);
+  if (tooth === null || !root) return;
+  const tile = tilesOf(root, tooth).find((t) => t.getAttribute("role") === "option");
+  tile?.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" });
+}
+
+/** Selection ring colour (`#rrggbb`) and a solid ring, to match DaliDoc's focus style. */
+export function setSelectionStyle(hex: string): void {
+  Odontogram.setSelectionColor(hex);
+  Odontogram.setSelectionBorderStyle("solid");
 }
 
 export function tilesOf(root: ParentNode, tooth?: number): HTMLElement[] {
   const selector = tooth === undefined ? ".tooth-tile[data-tooth]" : `.tooth-tile[data-tooth="${tooth}"]`;
   return Array.from(root.querySelectorAll<HTMLElement>(selector));
-}
-
-export function focusTooth(root: ParentNode, tooth: number): boolean {
-  const tiles = tilesOf(root, tooth);
-  const tile = tiles.find((t) => t.getAttribute("role") === "option") ?? tiles[0];
-  if (!tile) return false;
-  tile.click();
-  tile.focus({ preventScroll: true });
-  tile.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" });
-  return true;
 }

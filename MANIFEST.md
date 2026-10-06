@@ -11,6 +11,7 @@
 - `LICENSE.md`
 - `README.md`
 - `apps/web/README.md`
+- `packages/react-advanced-odontogram/README.md`
 - `SECURITY.md`
 - `SUPPORT.md`
 - `docs/API_SPECIFICATION.md`

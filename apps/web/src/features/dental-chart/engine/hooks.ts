@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useState, type RefObject } from "react";
 import type { ChartMarker } from "../lib/tooth-event-status";
-import { selectedTeeth, subscribe, tilesOf } from "./engine";
+import { onSelection, selectTooth, subscribe, tilesOf } from "./engine";
 
 /** Bumps every time the engine reports a chart change (throttled to one per frame). */
 export function useEngineRevision(enabled: boolean): number {
@@ -23,60 +23,34 @@ export function useEngineRevision(enabled: boolean): number {
 }
 
 /**
- * The tooth the drawer shows.
+ * The tooth the drawer shows: the engine's active tooth (with several teeth
+ * selected, the one added last), followed through `onSelectionChange`.
  *
- * Editable chart: follows the engine's own selection (a tile click, the
- * keyboard, the selection filters); with several teeth selected, the one added
- * last wins. Read-only chart: the engine ignores clicks, so DaliDoc selects
- * the tooth itself and marks the tile with `data-dd-selected`.
+ * Editable chart: the engine selects on click, keyboard and selection filters.
+ * Read-only chart: the engine ignores clicks, so DaliDoc selects the clicked
+ * tooth through `selectTeeth()`, which is allowed in read-only mode.
  */
 export function useToothSelection(rootRef: RefObject<HTMLElement | null>, editable: boolean, ready: boolean) {
-  const [tooth, setTooth] = useState<number | null>(null);
-  const [count, setCount] = useState(0);
-  const previous = useRef<number[]>([]);
+  const [selection, setSelection] = useState<{ tooth: number | null; count: number }>({ tooth: null, count: 0 });
 
   useEffect(() => {
-    const root = rootRef.current;
-    if (!root || !ready || !editable) return;
-    const read = () => {
-      const now = selectedTeeth(root);
-      const added = now.filter((n) => !previous.current.includes(n));
-      previous.current = now;
-      setCount(now.length);
-      setTooth((current) => {
-        if (now.length === 0) return null;
-        if (added.length > 0) return added[added.length - 1] ?? null;
-        return current !== null && now.includes(current) ? current : (now[0] ?? null);
-      });
-    };
-    read();
-    const observer = new MutationObserver(read);
-    observer.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ["class"] });
-    return () => observer.disconnect();
-  }, [rootRef, editable, ready]);
+    if (!ready) return;
+    return onSelection((teeth, active) => setSelection({ tooth: active, count: teeth.length }));
+  }, [ready]);
 
   useEffect(() => {
     const root = rootRef.current;
     if (!root || !ready || editable) return;
     const onClick = (event: MouseEvent) => {
       const tile = (event.target as Element | null)?.closest<HTMLElement>(".tooth-tile[data-tooth]");
-      if (tile) setTooth(Number(tile.dataset.tooth));
+      if (tile) selectTooth(root, Number(tile.dataset.tooth));
     };
     root.addEventListener("click", onClick);
     return () => root.removeEventListener("click", onClick);
   }, [rootRef, editable, ready]);
 
-  useEffect(() => {
-    const root = rootRef.current;
-    if (!root || !ready || editable) return;
-    for (const tile of tilesOf(root)) {
-      if (Number(tile.dataset.tooth) === tooth) tile.dataset.ddSelected = "";
-      else delete tile.dataset.ddSelected;
-    }
-  }, [rootRef, editable, ready, tooth]);
-
-  const select = useCallback((n: number | null) => setTooth(n), []);
-  return { tooth, count: editable ? count : tooth === null ? 0 : 1, select };
+  const select = useCallback((tooth: number | null) => selectTooth(rootRef.current, tooth), [rootRef]);
+  return { tooth: selection.tooth, count: selection.count, select };
 }
 
 /**

@@ -15,6 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { can } from "@/lib/permissions";
+import { BRAND_ON_DARK } from "@/lib/preferences";
 import { dentalChartApi } from "../api/mock-dental-chart.api";
 import { DEMO_USERS } from "../api/mock-data";
 import * as engine from "../engine/engine";
@@ -93,6 +94,11 @@ function Workspace({
   const workflow = useChartWorkflow({ api: dentalChartApi, record, update, actor, engineReady: ready });
   const selection = useToothSelection(stageRef, canEdit, workflow.loaded);
 
+  // The lightbox is dark in every theme, so the ring uses the brand's on-dark tone.
+  useEffect(() => {
+    if (ready) engine.setSelectionStyle(BRAND_ON_DARK[prefs.brand]);
+  }, [ready, prefs.brand]);
+
   const describe = useCallback((_tooth: number, marker: ChartMarker) => t(`marker.${marker}`), [t]);
   useTileAnnotations(stageRef, workflow.loaded, workflow.markers, describe);
 
@@ -102,16 +108,7 @@ function Workspace({
     return set;
   }, [workflow.live]);
 
-  const { select } = selection;
-  const selectTooth = useCallback(
-    (tooth: number | null) => {
-      const root = stageRef.current;
-      if (tooth === null) select(null);
-      else if (canEdit && root) engine.focusTooth(root, tooth);
-      else select(tooth);
-    },
-    [canEdit, select],
-  );
+  const selectTooth = selection.select;
 
   return (
     <div className="mx-auto flex w-full max-w-[1680px] flex-col gap-4 px-3 py-4 sm:px-5 sm:py-5">

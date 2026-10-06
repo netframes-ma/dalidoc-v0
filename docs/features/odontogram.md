@@ -9,10 +9,11 @@ appointment and the invoice.
 
 ## Charting Engine
 
-The chart itself is [React Advanced Odontogram](https://github.com/ZoliQua/React-Advanced-Odontogram)
-2.5.0 (ADR-0005): FDI numbering, caries and fillings per surface, endodontics,
-crowns, bridges, implants, a Status chart and a Plan chart, a periodontal
-chart, and FHIR R4 / SVG / PNG export.
+The chart itself is [React Advanced Odontogram](https://github.com/ZoliQua/React-Advanced-Odontogram),
+built from upstream `main` plus DaliDoc's patches and vendored in
+`packages/react-advanced-odontogram` (ADR-0005): FDI numbering, caries and
+fillings per surface, endodontics, crowns, bridges, implants, a Status chart
+and a Plan chart, a periodontal chart, and FHIR R4 / SVG / PNG export.
 
 DaliDoc composes the engine's surfaces in its own layout under a single
 `OdontogramProvider`:
@@ -25,7 +26,13 @@ DaliDoc composes the engine's surfaces in its own layout under a single
 | `PerioChart` | Opened from the lightbox (**Parodontogramme**) |
 
 Language, dark mode and read-only mode are driven by DaliDoc's preferences and
-permissions; colours come from DaliDoc's tokens (`apps/web/src/styles/odontogram-theme.css`).
+permissions; colours come from DaliDoc's tokens through the engine's public
+`--odon-*` variables (`apps/web/src/styles/odontogram-theme.css`), including
+the accent, the text on accent controls and the material colours
+(metal-ceramic, zircon). The selection follows the engine's
+`onSelectionChange()`; DaliDoc selects teeth with `selectTeeth()` (arch
+navigator, validation queue, plan rows, and clicks for read-only roles) and
+sets the selection ring with `setSelectionColor()`.
 
 ## Visual Requirement
 
@@ -134,7 +141,9 @@ API. External calendar invitations never carry treatment details.
 
 - One chart per page (the engine is a singleton).
 - Engine-generated text (charted findings, plan change labels, the clinical
-  summary) uses the engine's own translations, which are partly English in
-  French and Arabic.
+  summary) uses the engine's own translations; a few Arabic labels keep an
+  English term in brackets (e.g. "الجير السني (Calculus)").
+- The engine is a vendored fork until upstream releases DaliDoc's patches
+  (`packages/react-advanced-odontogram/README.md`).
 - The API is an in-memory mock (`api/mock-dental-chart.api.ts`) with the
   backend's rules; the Fastify service replaces it behind the same interface.

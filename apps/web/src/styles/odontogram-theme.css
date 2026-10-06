@@ -1,15 +1,17 @@
 /*
  * React Advanced Odontogram × DaliDoc tokens.
  *
- * 1. Public theme variables (--odon-*) mapped to DaliDoc tokens, on :root
- *    because the engine appends some popups (zoom, context menu, caries depth)
- *    straight to <body>.
- * 2. The lightbox: the chart surface on an ink panel in every theme.
+ * Only public theme variables (--odon-*) and DaliDoc's own layout rules: the
+ * engine's stylesheet (packages/react-advanced-odontogram, style.layer.css) is
+ * already scoped to the component and sits in the `odontogram` layer.
+ *
+ * 1. --odon-* mapped to DaliDoc tokens, on :root because the engine appends
+ *    some popups (zoom, context menu, caries depth) straight to <body>.
+ * 2. The lightbox: the chart surface on an ink panel in every theme. It carries
+ *    the `.dark` class, where the engine re-resolves its colours from the
+ *    --odon-* values set here.
  * 3. DaliDoc's workflow markers on the engine's tiles (data-dd-flow).
  * 4. The engine's controls and summary inside DaliDoc cards.
- *
- * Note: inside the engine root, write `max-sm:hidden` rather than
- * `hidden sm:block` — the engine owns an `!important` `.hidden` class there.
  */
 
 /* 1 ── Theme bridge ─────────────────────────────────────────────────────── */
@@ -21,12 +23,13 @@
   --odon-muted: var(--muted-fg);
   --odon-line: var(--border);
   --odon-accent: var(--primary);
+  --odon-accent-fg: var(--primary-fg);
   --odon-accent2: var(--success);
-  --odon-select-rgb: var(--primary-rgb);
 
   /* Restoration materials: the engine's palette, with metal-ceramic moved
-     from a yellow→blue ramp to porcelain→steel so it reads as a material, not
-     an alert. Still nine distinct steps for the gradient. */
+     from a yellow→blue ramp to porcelain→steel and zircon from pale yellow to
+     a cool white, so they read as materials, not alerts. */
+  --odon-rest-zircon: #e3edf3;
   --odon-rest-metal-ceramic-0: #f6f1e7;
   --odon-rest-metal-ceramic-1: #efe9dd;
   --odon-rest-metal-ceramic-2: #e4dfd5;
@@ -38,33 +41,21 @@
   --odon-rest-metal-ceramic-8: #7d8a9c;
 }
 
-/* The classic artwork hard-codes its gradient stops (only the "measured"
-   anatomy reads --odon-rest-*), so the metal-ceramic ramp is re-pointed at the
-   variables here; CSS outranks SVG presentation attributes. */
-stop[stop-color="#feff5f" i] { stop-color: var(--odon-rest-metal-ceramic-0); }
-stop[stop-color="#f9fc60" i] { stop-color: var(--odon-rest-metal-ceramic-1); }
-stop[stop-color="#edf564" i] { stop-color: var(--odon-rest-metal-ceramic-2); }
-stop[stop-color="#d8ea6b" i] { stop-color: var(--odon-rest-metal-ceramic-3); }
-stop[stop-color="#bbd975" i] { stop-color: var(--odon-rest-metal-ceramic-4); }
-stop[stop-color="#95c482" i] { stop-color: var(--odon-rest-metal-ceramic-5); }
-stop[stop-color="#68ab91" i] { stop-color: var(--odon-rest-metal-ceramic-6); }
-stop[stop-color="#328da3" i] { stop-color: var(--odon-rest-metal-ceramic-7); }
-stop[stop-color="#0071b5" i] { stop-color: var(--odon-rest-metal-ceramic-8); }
-
 @layer components {
   /* 2 ── Lightbox ────────────────────────────────────────────────────────── */
   .dd-lightbox {
     --lb-surface: #141b26;
     --lb-tile: rgb(255 255 255 / 0.03);
     --lb-line: rgb(255 255 255 / 0.08);
-    --rao-bg: transparent;
-    --rao-panel: #1b2431;
-    --rao-card: #1b2431;
-    --rao-text: var(--frame-fg);
-    --rao-muted: var(--frame-muted);
-    --rao-line: var(--lb-line);
-    --rao-accent: var(--od-accent);
-    --rao-accent2: var(--od-success);
+    --odon-bg: transparent;
+    --odon-panel: #1b2431;
+    --odon-card: #1b2431;
+    --odon-text: var(--frame-fg);
+    --odon-muted: var(--frame-muted);
+    --odon-line: var(--lb-line);
+    --odon-accent: var(--od-accent);
+    --odon-accent-fg: var(--od-accent-fg);
+    --odon-accent2: var(--od-success);
     color: var(--frame-fg);
     background:
       radial-gradient(110% 60% at 50% -12%, color-mix(in srgb, var(--od-accent) 13%, transparent), transparent 62%),
@@ -74,13 +65,6 @@ stop[stop-color="#0071b5" i] { stop-color: var(--odon-rest-metal-ceramic-8); }
     box-shadow:
       0 0 0 1px rgb(255 255 255 / 0.04) inset,
       0 24px 48px -28px rgb(2 6 23 / 0.6);
-  }
-
-  /* The engine writes its default selection colour inline on the grid
-     (2.5.0 has no setter); only !important outranks an inline declaration. */
-  .dd-lightbox .tooth-grid {
-    --odon-select-rgb: var(--brand-on-dark-rgb) !important;
-    --odon-select-border-style: solid !important;
   }
 
   /* Narrow screens: the 16-tooth rows scroll inside the lightbox. */
@@ -191,13 +175,8 @@ stop[stop-color="#0071b5" i] { stop-color: var(--odon-rest-metal-ceramic-8); }
     background: rgb(255 255 255 / 0.07);
     border-color: rgb(255 255 255 / 0.16);
   }
-  .dd-lightbox .tooth-tile.active,
-  .dd-lightbox .tooth-tile[data-dd-selected] {
+  .dd-lightbox .tooth-tile.active {
     background: color-mix(in srgb, var(--od-accent) 12%, transparent);
-  }
-  .dd-lightbox .tooth-tile[data-dd-selected]::after {
-    border-color: rgba(var(--odon-select-rgb), 1);
-    border-style: solid;
   }
   /* Read-only roles still open a tooth's record by clicking it: DaliDoc
      handles the click (the engine ignores clicks in read-only mode). */

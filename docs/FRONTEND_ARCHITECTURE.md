@@ -51,15 +51,14 @@ Never hard-code colours in components; add a token instead.
 
 ## Third-party UI: the odontogram engine
 
-React Advanced Odontogram ships a global stylesheet. It is adapted at
-install/build time by `apps/web/scripts/scope-odontogram-css.mjs` into
-`src/styles/vendor/odontogram.css` (git-ignored) and loaded in the
-`odontogram` cascade layer, after Tailwind's base and before its utilities.
-Its theme variables are mapped to DaliDoc tokens in
-`src/styles/odontogram-theme.css`.
-
-Inside the engine root, use `max-sm:hidden` rather than `hidden sm:block`: the
-engine owns an `!important` `.hidden` class there.
+React Advanced Odontogram is vendored in `packages/react-advanced-odontogram`
+(upstream + DaliDoc patches, ADR-0005) and installed into `apps/web` as a
+copied `file:` dependency (`apps/web/.npmrc`: `install-links=true`). Its
+stylesheet is scoped to the component; `globals.css` imports the layered
+variant, `react-advanced-odontogram/style.layer.css`, which sits in the
+`odontogram` cascade layer after Tailwind's base and before its utilities.
+Theme it only through its public `--odon-*` variables
+(`src/styles/odontogram-theme.css`).
 
 ## Internationalisation
 

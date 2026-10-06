@@ -11,7 +11,7 @@
 
 @import "tailwindcss";
 @import "tw-animate-css";
-@import "../styles/vendor/odontogram.css";
+@import "react-advanced-odontogram/style.layer.css";
 @import "../styles/odontogram-theme.css";
 
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
